@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 
 const navItems = [
   { to: "/schedule", label: "Расписание", icon: Calendar },
-  { to: "/predictions", label: "Мои прогнозы", icon: Target },
+  { to: "/predictions", label: "Прогнозы", icon: Target },
   { to: "/leaderboard", label: "Таблица", icon: Trophy },
   { to: "/stats", label: "Статистика", icon: BarChart3 },
   { to: "/rules", label: "Правила", icon: BookOpen },
