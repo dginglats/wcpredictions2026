@@ -2,11 +2,23 @@ import { createFileRoute } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { supabase } from "@/integrations/supabase/client"
 import type { LeaderboardRow } from "@/lib/types"
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid, Legend, LineChart, Line } from "recharts"
+import {
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid,
+  Legend, LineChart, Line, Cell, LabelList,
+} from "recharts"
 
 export const Route = createFileRoute("/_authenticated/stats")({ component: StatsPage })
 
-interface PredAgg { user_id: string; username: string; points: number; bingo: number }
+const PLAYER_COLORS = ["#22c55e","#facc15","#3b82f6","#f97316","#a855f7","#ec4899","#06b6d4","#84cc16"]
+
+interface PredAgg { user_id: string; username: string; points: number; bingo: number; outcome: number; draw: number; miss: number; rate: number }
+
+// Custom bar label showing the value on top
+const BarLabel = (props: { x?: number; y?: number; width?: number; value?: number }) => {
+  const { x = 0, y = 0, width = 0, value = 0 } = props
+  if (!value) return null
+  return <text x={x + width / 2} y={y - 4} fill="#9ca3af" textAnchor="middle" fontSize={11}>{value}</text>
+}
 
 function StatsPage() {
   const [rows, setRows] = useState<LeaderboardRow[]>([])
@@ -15,7 +27,8 @@ function StatsPage() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("leaderboard").select("*")
-      setRows((data ?? []) as LeaderboardRow[])
+      const sorted = [...((data ?? []) as LeaderboardRow[])].sort((a, b) => (b.total_points ?? 0) - (a.total_points ?? 0))
+      setRows(sorted)
 
       const { data: ps } = await supabase.from("predictions")
         .select("user_id, points, updated_at, profiles(username), matches!inner(kickoff,status)")
@@ -29,69 +42,126 @@ function StatsPage() {
         const day = new Date(p.matches.kickoff).toLocaleDateString("ru-RU", { day:"2-digit", month:"short" })
         const u = p.profiles?.username ?? "?"
         running[u] = (running[u] ?? 0) + (p.points ?? 0)
-        dayMap[day] ??= { ...running }
+        dayMap[day] ??= {}
         dayMap[day][u] = running[u]
-        for (const usr of users) dayMap[day][usr] ??= running[usr] ?? 0
+        for (const usr of users) { if (!(usr in dayMap[day])) dayMap[day][usr] = running[usr] ?? 0 }
       }
       const arr: Array<Record<string, string | number>> = Object.entries(dayMap).map(([day, vals]) => ({ day, ...vals }))
       setSeries(arr)
     })()
   }, [])
 
-  const bingoData: PredAgg[] = rows.map(r => ({ user_id: r.user_id ?? "", username: r.username ?? "?", points: r.total_points ?? 0, bingo: r.bingo_count ?? 0 }))
+  const barData: PredAgg[] = rows.map(r => ({
+    user_id: r.user_id ?? "",
+    username: r.username ?? "?",
+    points: r.total_points ?? 0,
+    bingo: r.bingo_count ?? 0,
+    outcome: r.outcome_count ?? 0,
+    draw: r.draw_count ?? 0,
+    miss: r.miss_count ?? 0,
+    rate: Number(r.success_rate ?? 0),
+  }))
 
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold">Статистика</h1>
 
-      <section className="rounded-xl border border-border bg-card p-5 shadow-card">
-        <h2 className="font-semibold mb-4">Рост очков по дням</h2>
-        <div className="h-72">
-          <ResponsiveContainer>
-            <LineChart data={series}>
-              <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="day" tick={{ fill: "#9ca3af", fontSize: 11 }} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} />
-              <Tooltip contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }} />
-              <Legend />
-              {rows.map((r, i) => (
-                <Line key={r.user_id ?? i} type="monotone" dataKey={r.username ?? "?"} stroke={["#22c55e","#facc15","#3b82f6","#f97316","#a855f7"][i%5]} strokeWidth={2} dot={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
+      {/* 1. Points growth over time (line chart) */}
+      {series.length > 0 && (
+        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+          <h2 className="font-semibold mb-4">Рост очков по дням</h2>
+          <div className="h-72">
+            <ResponsiveContainer>
+              <LineChart data={series}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="day" tick={{ fill: "#9ca3af", fontSize: 11 }} />
+                <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} />
+                <Tooltip contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }} />
+                <Legend />
+                {rows.map((r, i) => (
+                  <Line key={r.user_id ?? i} type="monotone" dataKey={r.username ?? "?"} stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]} strokeWidth={2.5} dot={{ r:3 }} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
 
-      <div className="grid md:grid-cols-2 gap-6">
+      {/* 2. Points per player — horizontal bar chart with names */}
+      {barData.length > 0 && (
         <section className="rounded-xl border border-border bg-card p-5 shadow-card">
           <h2 className="font-semibold mb-4">Очки игроков</h2>
-          <div className="h-64">
+          <div style={{ height: Math.max(200, barData.length * 52) }}>
             <ResponsiveContainer>
-              <BarChart data={bingoData}>
-                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="username" tick={{ fill:"#9ca3af", fontSize:11 }} />
-                <YAxis tick={{ fill:"#9ca3af", fontSize:11 }} />
-                <Tooltip contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }} />
-                <Bar dataKey="points" fill="oklch(0.72 0.18 145)" radius={[6,6,0,0]} />
+              <BarChart data={barData} layout="vertical" margin={{ left: 8, right: 48, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" tick={{ fill:"#9ca3af", fontSize:11 }} />
+                <YAxis type="category" dataKey="username" width={90} tick={{ fill:"#e2e8f0", fontSize:12, fontWeight:600 }} />
+                <Tooltip
+                  contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }}
+                  formatter={(v: number) => [`${v} очков`, "Очки"]}
+                />
+                <Bar dataKey="points" radius={[0,6,6,0]} maxBarSize={32}>
+                  <LabelList dataKey="points" position="right" fill="#9ca3af" fontSize={12} />
+                  {barData.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </section>
+      )}
+
+      {/* 3. Breakdown: bingo / outcome / draw / miss per player */}
+      {barData.length > 0 && (
         <section className="rounded-xl border border-border bg-card p-5 shadow-card">
-          <h2 className="font-semibold mb-4">Количество БИНГО</h2>
-          <div className="h-64">
+          <h2 className="font-semibold mb-4">Разбивка по типам результата</h2>
+          <div style={{ height: Math.max(220, barData.length * 52) }}>
             <ResponsiveContainer>
-              <BarChart data={bingoData}>
-                <CartesianGrid stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="username" tick={{ fill:"#9ca3af", fontSize:11 }} />
-                <YAxis tick={{ fill:"#9ca3af", fontSize:11 }} />
+              <BarChart data={barData} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" tick={{ fill:"#9ca3af", fontSize:11 }} />
+                <YAxis type="category" dataKey="username" width={90} tick={{ fill:"#e2e8f0", fontSize:12, fontWeight:600 }} />
                 <Tooltip contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }} />
-                <Bar dataKey="bingo" fill="oklch(0.82 0.16 85)" radius={[6,6,0,0]} />
+                <Legend />
+                <Bar dataKey="bingo"   name="БИНГО"   stackId="a" fill="#facc15" maxBarSize={28} />
+                <Bar dataKey="draw"    name="Ничья"   stackId="a" fill="#3b82f6" maxBarSize={28} />
+                <Bar dataKey="outcome" name="Исход"   stackId="a" fill="#22c55e" maxBarSize={28} />
+                <Bar dataKey="miss"    name="Промах"  stackId="a" fill="#ef4444" maxBarSize={28} radius={[0,6,6,0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </section>
-      </div>
+      )}
+
+      {/* 4. Success rate */}
+      {barData.length > 0 && (
+        <section className="rounded-xl border border-border bg-card p-5 shadow-card">
+          <h2 className="font-semibold mb-4">Процент успешных прогнозов</h2>
+          <div style={{ height: Math.max(200, barData.length * 52) }}>
+            <ResponsiveContainer>
+              <BarChart data={barData} layout="vertical" margin={{ left: 8, right: 56, top: 4, bottom: 4 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.05)" horizontal={false} />
+                <XAxis type="number" domain={[0,100]} unit="%" tick={{ fill:"#9ca3af", fontSize:11 }} />
+                <YAxis type="category" dataKey="username" width={90} tick={{ fill:"#e2e8f0", fontSize:12, fontWeight:600 }} />
+                <Tooltip
+                  contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }}
+                  formatter={(v: number) => [`${v}%`, "Успех"]}
+                />
+                <Bar dataKey="rate" radius={[0,6,6,0]} maxBarSize={32}>
+                  <LabelList dataKey="rate" position="right" fill="#9ca3af" fontSize={12} formatter={(v: number) => `${v}%`} />
+                  {barData.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} fillOpacity={0.8} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+      )}
+
+      {barData.length === 0 && series.length === 0 && (
+        <div className="text-center text-muted-foreground py-20 border border-dashed border-border rounded-xl">
+          Статистика появится после первых сыгранных матчей
+        </div>
+      )}
     </div>
   )
 }
