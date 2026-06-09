@@ -24,31 +24,44 @@ function StatsPage() {
   const [rows, setRows] = useState<LeaderboardRow[]>([])
   const [series, setSeries] = useState<Array<Record<string, string | number>>>([])
 
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.from("leaderboard").select("*")
-      const sorted = [...((data ?? []) as LeaderboardRow[])].sort((a, b) => (b.total_points ?? 0) - (a.total_points ?? 0))
-      setRows(sorted)
+  async function load() {
+    const [{ data }, { data: ps }, { data: profs }] = await Promise.all([
+      supabase.from("leaderboard").select("*"),
+      // No FK from predictions.user_id -> profiles.id, so fetch profiles separately and join in JS.
+      supabase.from("predictions").select("user_id, points, updated_at, matches!inner(kickoff,status)"),
+      supabase.from("profiles").select("id, username"),
+    ])
+    const sorted = [...((data ?? []) as LeaderboardRow[])].sort((a, b) => (b.total_points ?? 0) - (a.total_points ?? 0))
+    setRows(sorted)
 
-      const { data: ps } = await supabase.from("predictions")
-        .select("user_id, points, updated_at, profiles(username), matches!inner(kickoff,status)")
-      type PR = { user_id: string; points: number | null; updated_at: string; profiles: { username: string } | null; matches: { kickoff: string; status: string } }
-      const list = ((ps ?? []) as unknown as PR[]).filter(p => p.matches?.status === "finished" && p.points !== null)
-      list.sort((a,b) => new Date(a.matches.kickoff).getTime() - new Date(b.matches.kickoff).getTime())
-      const users = Array.from(new Set(list.map(p => p.profiles?.username ?? "?")))
-      const dayMap: Record<string, Record<string, number>> = {}
-      const running: Record<string, number> = {}
-      for (const p of list) {
-        const day = new Date(p.matches.kickoff).toLocaleDateString("ru-RU", { day:"2-digit", month:"short" })
-        const u = p.profiles?.username ?? "?"
-        running[u] = (running[u] ?? 0) + (p.points ?? 0)
-        dayMap[day] ??= {}
-        dayMap[day][u] = running[u]
-        for (const usr of users) { if (!(usr in dayMap[day])) dayMap[day][usr] = running[usr] ?? 0 }
-      }
-      const arr: Array<Record<string, string | number>> = Object.entries(dayMap).map(([day, vals]) => ({ day, ...vals }))
-      setSeries(arr)
-    })()
+    const nameOf: Record<string, string> = {}
+    for (const pr of (profs ?? []) as { id: string; username: string }[]) nameOf[pr.id] = pr.username
+
+    type PR = { user_id: string; points: number | null; updated_at: string; matches: { kickoff: string; status: string } }
+    const list = ((ps ?? []) as unknown as PR[]).filter(p => p.matches?.status === "finished" && p.points !== null)
+    list.sort((a,b) => new Date(a.matches.kickoff).getTime() - new Date(b.matches.kickoff).getTime())
+    const users = Array.from(new Set(list.map(p => nameOf[p.user_id] ?? "?")))
+    const dayMap: Record<string, Record<string, number>> = {}
+    const running: Record<string, number> = {}
+    for (const p of list) {
+      const day = new Date(p.matches.kickoff).toLocaleDateString("ru-RU", { day:"2-digit", month:"short" })
+      const u = nameOf[p.user_id] ?? "?"
+      running[u] = (running[u] ?? 0) + (p.points ?? 0)
+      dayMap[day] ??= {}
+      dayMap[day][u] = running[u]
+      for (const usr of users) { if (!(usr in dayMap[day])) dayMap[day][usr] = running[usr] ?? 0 }
+    }
+    const arr: Array<Record<string, string | number>> = Object.entries(dayMap).map(([day, vals]) => ({ day, ...vals }))
+    setSeries(arr)
+  }
+
+  useEffect(() => {
+    load()
+    const ch = supabase.channel("stats-rt")
+      .on("postgres_changes", { event: "*", schema: "public", table: "predictions" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, load)
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
   }, [])
 
   const barData: PredAgg[] = rows.map(r => ({

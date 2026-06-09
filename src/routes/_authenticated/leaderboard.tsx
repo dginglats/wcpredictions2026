@@ -74,8 +74,8 @@ function LeaderboardPage() {
                 <th className="px-3 py-3 text-left hidden sm:table-cell">Машина</th>
                 <th className="px-3 py-3 text-right">Очки</th>
                 <th className="px-3 py-3 text-right">БИНГО</th>
-                <th className="px-3 py-3 text-right hidden md:table-cell">Ничьи</th>
-                <th className="px-3 py-3 text-right hidden md:table-cell">Исходы</th>
+                <th className="px-3 py-3 text-right">Ничьи</th>
+                <th className="px-3 py-3 text-right">Исходы</th>
                 <th className="px-3 py-3 text-right">%</th>
               </tr>
             </thead>
@@ -98,8 +98,8 @@ function LeaderboardPage() {
                     <td className="px-3 py-3 text-right tabular-nums">
                       <span className="inline-flex items-center justify-center min-w-7 px-2 py-0.5 rounded-md bg-gold/20 text-gold font-bold">{r.bingo_count}</span>
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums hidden md:table-cell">{r.draw_count}</td>
-                    <td className="px-3 py-3 text-right tabular-nums hidden md:table-cell">{r.outcome_count}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{r.draw_count}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">{r.outcome_count}</td>
                     <td className="px-3 py-3 text-right tabular-nums text-muted-foreground">{r.success_rate}%</td>
                   </tr>
                 )

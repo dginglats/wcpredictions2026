@@ -75,8 +75,8 @@ function MatchesAdmin() {
         <div className="grid sm:grid-cols-2 gap-3">
           <div><Label>Хозяева</Label><Input required value={form.home_team} onChange={e=>setForm({...form,home_team:e.target.value})} /></div>
           <div><Label>Гости</Label><Input required value={form.away_team} onChange={e=>setForm({...form,away_team:e.target.value})} /></div>
-          <div><Label>Флаг хозяев (emoji)</Label><Input value={form.home_flag} onChange={e=>setForm({...form,home_flag:e.target.value})} placeholder="🇷🇺" /></div>
-          <div><Label>Флаг гостей</Label><Input value={form.away_flag} onChange={e=>setForm({...form,away_flag:e.target.value})} placeholder="🇧🇷" /></div>
+          <div><Label>Флаг хозяев (код страны, 2 буквы)</Label><Input value={form.home_flag} onChange={e=>setForm({...form,home_flag:e.target.value})} placeholder="MX" /></div>
+          <div><Label>Флаг гостей (код страны, 2 буквы)</Label><Input value={form.away_flag} onChange={e=>setForm({...form,away_flag:e.target.value})} placeholder="ZA" /></div>
           <div><Label>Начало (ваше время)</Label><Input required type="datetime-local" value={form.kickoff} onChange={e=>setForm({...form,kickoff:e.target.value})} /></div>
           <div><Label>Стадия</Label>
             <select value={form.stage} onChange={e=>setForm({...form,stage:e.target.value as MatchStage})} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">

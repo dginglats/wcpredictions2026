@@ -15,13 +15,13 @@ import { TeamDisplay } from "@/components/TeamDisplay"
 const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * Betting opens at 00:00 of the calendar day BEFORE the match day.
- * e.g. a match on Jun 14 opens for predictions on Jun 13 at 00:00 (local time).
+ * Betting opens at 00:00, two calendar days before the match day.
+ * e.g. a match on Jun 15 opens for predictions on Jun 13 at 00:00 (local time).
  */
 function bettingOpensAt(m: Match): number {
   const kickoff = new Date(m.kickoff)
   const matchDayStart = new Date(kickoff.getFullYear(), kickoff.getMonth(), kickoff.getDate())
-  return matchDayStart.getTime() - DAY_MS
+  return matchDayStart.getTime() - 2 * DAY_MS
 }
 
 export const Route = createFileRoute("/_authenticated/predictions")({ component: PredictionsPage })
@@ -50,19 +50,27 @@ function PredictionsPage() {
 
   async function reload() {
     if (!user) return
-    const [{ data: ms }, { data: allPs }, { data: lb }] = await Promise.all([
+    const [{ data: ms }, { data: allPs }, { data: lb }, { data: profs }] = await Promise.all([
       supabase.from("matches").select("*").order("kickoff"),
-      supabase.from("predictions").select("id, match_id, user_id, home_score, away_score, outcome_type, points, profiles(username, car)"),
+      supabase.from("predictions").select("id, match_id, user_id, home_score, away_score, outcome_type, points"),
       supabase.from("leaderboard").select("*"),
+      supabase.from("profiles").select("id, username, car"),
     ])
 
     setMatches((ms ?? []) as Match[])
+
+    // No FK from predictions.user_id -> profiles.id, so join profiles in JS.
+    const profMap: Record<string, { username: string; car: string | null }> = {}
+    for (const pr of (profs ?? []) as { id: string; username: string; car: string | null }[]) {
+      profMap[pr.id] = { username: pr.username, car: pr.car }
+    }
 
     const myMap: Record<string, Prediction> = {}
     const drafts: Record<string, { h: string; a: string }> = {}
     const opMap: Record<string, OtherPrediction[]> = {}
     const apMap: Record<string, OtherPrediction[]> = {}
-    for (const p of (allPs ?? []) as unknown as OtherPrediction[]) {
+    for (const raw of (allPs ?? []) as unknown as OtherPrediction[]) {
+      const p: OtherPrediction = { ...raw, profiles: profMap[raw.user_id] ?? null }
       apMap[p.match_id] ??= []
       apMap[p.match_id].push(p)
       if (p.user_id === user.id) {
@@ -118,17 +126,17 @@ function PredictionsPage() {
 
   async function save(m: Match) {
     if (!user) return
+    // A saved prediction is final — it can't be edited.
+    if (preds[m.id]) return toast.error("Прогноз уже сохранён, изменить нельзя")
     const { allowed, reason } = canBet(m)
     if (!allowed) return toast.error(reason ?? "Нельзя ставить прогноз")
     const d = draft[m.id]
     if (!d || d.h === "" || d.a === "") return toast.error("Введите счёт")
     const h = Number(d.h), a = Number(d.a)
     if (!Number.isInteger(h) || !Number.isInteger(a) || h < 0 || a < 0) return toast.error("Некорректный счёт")
+    if (!confirm(`Сохранить прогноз ${m.home_team} ${h}:${a} ${m.away_team}? Изменить его потом будет нельзя.`)) return
     setBusy(m.id)
-    const existing = preds[m.id]
-    const { error } = existing
-      ? await supabase.from("predictions").update({ home_score: h, away_score: a }).eq("id", existing.id)
-      : await supabase.from("predictions").insert({ user_id: user.id, match_id: m.id, home_score: h, away_score: a })
+    const { error } = await supabase.from("predictions").insert({ user_id: user.id, match_id: m.id, home_score: h, away_score: a })
     setBusy(null)
     if (error) return toast.error(error.message)
     toast.success("Прогноз сохранён")
@@ -143,7 +151,7 @@ function PredictionsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold">Мои прогнозы</h1>
-        <p className="text-muted-foreground text-sm mt-1">Прогноз можно изменить до начала матча.
+        <p className="text-muted-foreground text-sm mt-1">Сохранённый прогноз изменить нельзя. Окно открывается за 2 дня до дня матча и закрывается с началом матча.
           {leaderIds.size > 0 && !isLeader && <span className="ml-2 text-gold">👑 Лидер ставит первым</span>}
           {isLeader && leaderIds.size > 0 && <span className="ml-2 text-gold">👑 Вы лидер — ставьте первым!</span>}
         </p>
@@ -166,7 +174,9 @@ function PredictionsPage() {
           {future.length === 0 && <Empty text="Нет предстоящих матчей." />}
           {future.map(m => {
             const d = draft[m.id] ?? { h: "", a: "" }
+            const saved = !!preds[m.id]
             const { allowed, reason } = canBet(m)
+            const editable = allowed && !saved
             const others = otherPreds[m.id] ?? []
             return (
               <div key={m.id} className="rounded-xl border border-border bg-card p-4 shadow-card">
@@ -178,31 +188,37 @@ function PredictionsPage() {
                   <TeamDisplay flag={m.home_flag} name={m.home_team} />
                   <div className="flex items-center gap-1.5 sm:gap-2 self-center pt-1">
                     <Input
-                      className="w-12 sm:w-14 text-center tabular-nums"
+                      className="size-12 sm:size-14 rounded-lg border-2 border-primary/50 bg-background text-center text-xl font-bold tabular-nums shadow-sm focus-visible:border-primary focus-visible:ring-2 disabled:border-border disabled:bg-muted/40"
                       inputMode="numeric"
+                      placeholder="–"
                       value={d.h}
-                      disabled={!allowed}
+                      disabled={!editable}
                       onChange={e=>setDraft(s=>({...s,[m.id]:{...d,h:e.target.value.replace(/\D/g,"")}}))}
                     />
-                    <span className="text-muted-foreground">:</span>
+                    <span className="text-lg font-bold text-muted-foreground">:</span>
                     <Input
-                      className="w-12 sm:w-14 text-center tabular-nums"
+                      className="size-12 sm:size-14 rounded-lg border-2 border-primary/50 bg-background text-center text-xl font-bold tabular-nums shadow-sm focus-visible:border-primary focus-visible:ring-2 disabled:border-border disabled:bg-muted/40"
                       inputMode="numeric"
+                      placeholder="–"
                       value={d.a}
-                      disabled={!allowed}
+                      disabled={!editable}
                       onChange={e=>setDraft(s=>({...s,[m.id]:{...d,a:e.target.value.replace(/\D/g,"")}}))}
                     />
                   </div>
                   <TeamDisplay flag={m.away_flag} name={m.away_team} />
                 </div>
                 <div className="mt-3 flex items-center justify-between">
-                  {!allowed
-                    ? <span className="text-xs flex items-center gap-1 text-gold"><Crown className="size-3" />{reason}</span>
-                    : <span />
+                  {saved
+                    ? <span className="text-xs flex items-center gap-1 text-primary font-medium"><Lock className="size-3" />Прогноз сохранён — изменить нельзя</span>
+                    : !allowed
+                      ? <span className="text-xs flex items-center gap-1 text-gold"><Crown className="size-3" />{reason}</span>
+                      : <span />
                   }
-                  <Button size="sm" onClick={()=>save(m)} disabled={busy===m.id || !allowed}>
-                    <Save className="size-3.5 mr-1" />Сохранить
-                  </Button>
+                  {!saved && (
+                    <Button size="sm" onClick={()=>save(m)} disabled={busy===m.id || !editable}>
+                      <Save className="size-3.5 mr-1" />Сохранить
+                    </Button>
+                  )}
                 </div>
                 {/* Others' predictions */}
                 {others.length > 0 && (
