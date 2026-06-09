@@ -10,8 +10,19 @@ import { Input } from "@/components/ui/input"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Crown, Lock, Save, Users, Clock } from "lucide-react"
 import { toast } from "sonner"
+import { TeamDisplay } from "@/components/TeamDisplay"
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Betting opens at 00:00 of the calendar day BEFORE the match day.
+ * e.g. a match on Jun 14 opens for predictions on Jun 13 at 00:00 (local time).
+ */
+function bettingOpensAt(m: Match): number {
+  const kickoff = new Date(m.kickoff)
+  const matchDayStart = new Date(kickoff.getFullYear(), kickoff.getMonth(), kickoff.getDate())
+  return matchDayStart.getTime() - DAY_MS
+}
 
 export const Route = createFileRoute("/_authenticated/predictions")({ component: PredictionsPage })
 
@@ -81,15 +92,16 @@ function PredictionsPage() {
   }
   useEffect(() => { reload() }, [user])
 
-  /** Betting window: opens 24h before kickoff, closes at kickoff */
+  /** Betting window: opens at 00:00 the day before the match day, closes at kickoff */
   function canBet(m: Match): { allowed: boolean; reason?: string } {
     const kickoff = new Date(m.kickoff).getTime()
     const now = Date.now()
     if (m.status !== "scheduled" || now >= kickoff) {
       return { allowed: false, reason: "Матч начался" }
     }
-    if (now < kickoff - DAY_MS) {
-      const opensAt = new Date(kickoff - DAY_MS)
+    const opensAtMs = bettingOpensAt(m)
+    if (now < opensAtMs) {
+      const opensAt = new Date(opensAtMs)
       const dateStr = opensAt.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
       return { allowed: false, reason: `Откроется ${dateStr}` }
     }
@@ -162,11 +174,11 @@ function PredictionsPage() {
                   <span>{new Date(m.kickoff).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                   <span className="text-gold">{STAGE_LABELS[m.stage]}{m.group_name ? ` · Группа ${m.group_name}` : ""}</span>
                 </div>
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                  <div className="text-right font-semibold">{m.home_flag} {m.home_team}</div>
-                  <div className="flex items-center gap-2">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
+                  <TeamDisplay flag={m.home_flag} name={m.home_team} />
+                  <div className="flex items-center gap-1.5 sm:gap-2 self-center pt-1">
                     <Input
-                      className="w-14 text-center tabular-nums"
+                      className="w-12 sm:w-14 text-center tabular-nums"
                       inputMode="numeric"
                       value={d.h}
                       disabled={!allowed}
@@ -174,14 +186,14 @@ function PredictionsPage() {
                     />
                     <span className="text-muted-foreground">:</span>
                     <Input
-                      className="w-14 text-center tabular-nums"
+                      className="w-12 sm:w-14 text-center tabular-nums"
                       inputMode="numeric"
                       value={d.a}
                       disabled={!allowed}
                       onChange={e=>setDraft(s=>({...s,[m.id]:{...d,a:e.target.value.replace(/\D/g,"")}}))}
                     />
                   </div>
-                  <div className="font-semibold">{m.away_team} {m.away_flag}</div>
+                  <TeamDisplay flag={m.away_flag} name={m.away_team} />
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   {!allowed
@@ -226,19 +238,13 @@ function PredictionsPage() {
                       <span>{new Date(m.kickoff).toLocaleString("ru-RU", { day: "2-digit", month: "short" })}{m.group_name ? ` · Гр. ${m.group_name}` : ""}</span>
                       <span className="flex items-center gap-1 text-muted-foreground"><Lock className="size-3" />Закрыт</span>
                     </div>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                      <div className="flex flex-col items-end gap-0.5">
-                        {m.home_flag && <span className="text-2xl leading-none">{m.home_flag}</span>}
-                        <span className="font-semibold text-sm">{m.home_team}</span>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-xl font-bold tabular-nums">{m.status === "finished" ? `${m.home_score}:${m.away_score}` : "—:—"}</div>
+                    <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
+                      <TeamDisplay flag={m.home_flag} name={m.home_team} size="sm" />
+                      <div className="text-center self-center">
+                        <div className="text-xl font-bold tabular-nums whitespace-nowrap">{m.status === "finished" ? `${m.home_score}:${m.away_score}` : "—:—"}</div>
                         {p && <div className="text-[10px] text-muted-foreground mt-0.5">мой прогноз {p.home_score}:{p.away_score}</div>}
                       </div>
-                      <div className="flex flex-col items-start gap-0.5">
-                        {m.away_flag && <span className="text-2xl leading-none">{m.away_flag}</span>}
-                        <span className="font-semibold text-sm">{m.away_team}</span>
-                      </div>
+                      <TeamDisplay flag={m.away_flag} name={m.away_team} size="sm" />
                     </div>
                     {p && m.status === "finished" && (
                       <div className="mt-3 flex justify-center items-center gap-2">
@@ -287,21 +293,15 @@ function PredictionsPage() {
                   <span>{new Date(m.kickoff).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                   <span className="text-gold">{m.group_name ? `Группа ${m.group_name}` : STAGE_LABELS[m.stage]}</span>
                 </div>
-                <div className="flex items-center justify-center gap-6 mb-3">
-                  <div className="flex flex-col items-end gap-0.5">
-                    {m.home_flag && <span className="text-2xl leading-none">{m.home_flag}</span>}
-                    <span className="font-semibold text-sm">{m.home_team}</span>
-                  </div>
-                  <div className="text-center shrink-0">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-4 mb-3">
+                  <TeamDisplay flag={m.home_flag} name={m.home_team} size="sm" />
+                  <div className="text-center shrink-0 self-center">
                     {isFinished
-                      ? <span className="text-xl font-bold tabular-nums">{m.home_score}:{m.away_score}</span>
+                      ? <span className="text-xl font-bold tabular-nums whitespace-nowrap">{m.home_score}:{m.away_score}</span>
                       : <span className="text-muted-foreground font-bold text-sm">vs</span>
                     }
                   </div>
-                  <div className="flex flex-col items-start gap-0.5">
-                    {m.away_flag && <span className="text-2xl leading-none">{m.away_flag}</span>}
-                    <span className="font-semibold text-sm">{m.away_team}</span>
-                  </div>
+                  <TeamDisplay flag={m.away_flag} name={m.away_team} size="sm" />
                 </div>
                 {participants.length === 0
                   ? <p className="text-center text-xs text-muted-foreground py-2">Прогнозов пока нет</p>

@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Search, MapPin, Calendar } from "lucide-react"
 import { Countdown } from "@/components/Countdown"
+import { TeamDisplay } from "@/components/TeamDisplay"
 
 export const Route = createFileRoute("/_authenticated/schedule")({ component: SchedulePage })
 
@@ -92,9 +93,9 @@ function SchedulePage() {
 
       <Tabs defaultValue="upcoming">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="upcoming">Ближайшие ({upcoming.length})</TabsTrigger>
-          <TabsTrigger value="today">Сегодня ({today.length})</TabsTrigger>
-          <TabsTrigger value="finished">Завершённые ({finished.length})</TabsTrigger>
+          <TabsTrigger value="upcoming" className="text-xs sm:text-sm px-1 sm:px-3">Ближайшие ({upcoming.length})</TabsTrigger>
+          <TabsTrigger value="today" className="text-xs sm:text-sm px-1 sm:px-3">Сегодня ({today.length})</TabsTrigger>
+          <TabsTrigger value="finished" className="text-xs sm:text-sm px-1 sm:px-3">Завершённые ({finished.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="upcoming" className="space-y-3 mt-4">
           {upcoming.length === 0 ? <Empty /> : upcoming.map(m => <MatchCard key={m.id} m={m} pred={preds[m.id]} counts={predCounts[m.id]} />)}
@@ -122,28 +123,24 @@ function MatchCard({ m, pred, counts }: { m: Match; pred?: Prediction; counts?: 
     <div className={`relative rounded-xl border bg-card shadow-card overflow-hidden ${isLive ? "border-primary shadow-glow" : "border-border"}`}>
       {isLive && <div className="absolute top-2 right-2 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-primary"><span className="size-2 rounded-full bg-primary animate-pulse" />LIVE</div>}
       <div className="p-4 md:p-5">
-        <div className="flex items-center gap-3 text-xs text-muted-foreground mb-3">
-          <Calendar className="size-3" />
-          {date.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground mb-3">
+          <span className="flex items-center gap-1">
+            <Calendar className="size-3 shrink-0" />
+            {date.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </span>
           {m.group_name && <span className="px-1.5 py-0.5 rounded bg-secondary text-secondary-foreground">Группа {m.group_name}</span>}
           <span className="ml-auto text-gold">{STAGE_LABELS[m.stage]}</span>
         </div>
-        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-          <div className="text-right">
-            <div className="font-bold text-lg md:text-xl">{m.home_team}</div>
-            {m.home_flag && <div className="text-2xl">{m.home_flag}</div>}
-          </div>
-          <div className="text-center">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-4">
+          <TeamDisplay flag={m.home_flag} name={m.home_team} />
+          <div className="self-center px-1">
             {isFinished ? (
-              <div className="text-3xl md:text-4xl font-bold tabular-nums text-gradient-gold">{m.home_score}:{m.away_score}</div>
+              <div className="text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums text-gradient-gold whitespace-nowrap">{m.home_score}:{m.away_score}</div>
             ) : (
-              <div className="text-2xl font-bold text-muted-foreground">vs</div>
+              <div className="text-xl sm:text-2xl font-bold text-muted-foreground">vs</div>
             )}
           </div>
-          <div className="text-left">
-            <div className="font-bold text-lg md:text-xl">{m.away_team}</div>
-            {m.away_flag && <div className="text-2xl">{m.away_flag}</div>}
-          </div>
+          <TeamDisplay flag={m.away_flag} name={m.away_team} />
         </div>
         {(m.stadium || m.city) && (
           <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground mt-3">
