@@ -80,6 +80,51 @@ const SB_WRITE = {
 const SB_READ = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
 /**
+ * Safe, secret-free diagnostics: validates that the service key matches the project
+ * in SUPABASE_URL and is actually a server-side key. Prints nothing sensitive.
+ */
+function preflight() {
+  const urlRef = (() => {
+    try {
+      return new URL(BASE).host.split(".")[0];
+    } catch {
+      return "?";
+    }
+  })();
+  let keyDesc;
+  if (SERVICE_KEY.startsWith("eyJ")) {
+    try {
+      const payload = JSON.parse(Buffer.from(SERVICE_KEY.split(".")[1], "base64").toString());
+      keyDesc = `legacy JWT (role=${payload.role}, ref=${payload.ref})`;
+      if (payload.role !== "service_role") {
+        console.error(
+          `⚠️  Key role is "${payload.role}", expected "service_role". Use the service_role key, not anon.`,
+        );
+      }
+      if (payload.ref && payload.ref !== urlRef) {
+        console.error(
+          `⚠️  PROJECT MISMATCH: key belongs to project "${payload.ref}" but SUPABASE_URL points to "${urlRef}". Use a key + URL from the SAME project.`,
+        );
+      }
+    } catch {
+      keyDesc = "legacy JWT (unparseable — likely truncated/corrupted)";
+    }
+  } else if (SERVICE_KEY.startsWith("sb_secret_")) {
+    keyDesc = "new secret key (sb_secret_…)";
+  } else if (SERVICE_KEY.startsWith("sb_publishable_")) {
+    keyDesc = "publishable key";
+    console.error(
+      `⚠️  This is a PUBLISHABLE key — it can't bypass RLS. Use the SECRET key (sb_secret_…) from Project Settings → API Keys.`,
+    );
+  } else {
+    keyDesc = `unknown format (head="${SERVICE_KEY.slice(0, 6)}…")`;
+  }
+  console.log(
+    `🔑 service key: ${keyDesc}, length=${SERVICE_KEY.length} · url project ref: ${urlRef}`,
+  );
+}
+
+/**
  * Maps API-Football national-team names → { ru: display name, flag: ISO code for flagcdn }.
  * Keys are normalized (lowercased, alnum-only); aliases cover API naming quirks.
  * Unmapped teams fall back to the English name + the API logo URL.
@@ -265,6 +310,7 @@ async function main() {
   console.log(
     `🔌 Supabase: ${BASE} · league=${LEAGUE} season=${SEASON} · mode=${IMPORT ? "import" : "live"}`,
   );
+  preflight();
 
   const db = await getDbMatches();
 
