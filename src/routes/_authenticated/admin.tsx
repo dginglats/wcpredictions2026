@@ -25,9 +25,11 @@ function AdminPage() {
       <Tabs defaultValue="matches">
         <TabsList>
           <TabsTrigger value="matches">Матчи</TabsTrigger>
+          <TabsTrigger value="predictions">Прогнозы</TabsTrigger>
           <TabsTrigger value="players">Игроки</TabsTrigger>
         </TabsList>
         <TabsContent value="matches" className="mt-4 space-y-6"><MatchesAdmin /></TabsContent>
+        <TabsContent value="predictions" className="mt-4"><PredictionsAdmin /></TabsContent>
         <TabsContent value="players" className="mt-4"><PlayersAdmin /></TabsContent>
       </Tabs>
     </div>
@@ -118,6 +120,107 @@ function MatchAdminRow({ m, onResult, onDelete }: { m: Match; onResult: (m:Match
       </select>
       <Button size="sm" onClick={()=>onResult(m, Number(h||0), Number(a||0), status)}><Save className="size-3.5" /></Button>
       <Button size="sm" variant="destructive" onClick={()=>onDelete(m.id)}><Trash2 className="size-3.5" /></Button>
+    </div>
+  )
+}
+
+interface AdminPrediction {
+  id: string
+  user_id: string
+  home_score: number
+  away_score: number
+}
+
+function PredictionsAdmin() {
+  const [matches, setMatches] = useState<Match[]>([])
+  const [profs, setProfs] = useState<Record<string, Profile>>({})
+  const [matchId, setMatchId] = useState<string>("")
+  const [preds, setPreds] = useState<AdminPrediction[]>([])
+  const [draft, setDraft] = useState<Record<string, { h: string; a: string }>>({})
+  const [busy, setBusy] = useState<string | null>(null)
+
+  useEffect(() => {
+    (async () => {
+      const [{ data: ms }, { data: ps }] = await Promise.all([
+        supabase.from("matches").select("*").order("kickoff"),
+        supabase.from("profiles").select("*"),
+      ])
+      const list = (ms ?? []) as Match[]
+      setMatches(list)
+      const pm: Record<string, Profile> = {}
+      for (const p of (ps ?? []) as Profile[]) pm[p.id] = p
+      setProfs(pm)
+      if (!matchId && list.length) {
+        const now = Date.now()
+        const next = list.find(m => new Date(m.kickoff).getTime() > now && m.status === "scheduled") ?? list[0]
+        setMatchId(next.id)
+      }
+    })()
+  }, [])
+
+  async function loadPreds(id: string) {
+    const { data } = await supabase.from("predictions").select("id, user_id, home_score, away_score").eq("match_id", id)
+    const rows = (data ?? []) as AdminPrediction[]
+    setPreds(rows)
+    setDraft(Object.fromEntries(rows.map(r => [r.id, { h: String(r.home_score), a: String(r.away_score) }])))
+  }
+  useEffect(() => { if (matchId) loadPreds(matchId) }, [matchId])
+
+  const selected = matches.find(m => m.id === matchId)
+  const started = selected ? (new Date(selected.kickoff).getTime() <= Date.now() || selected.status !== "scheduled") : false
+
+  async function save(p: AdminPrediction) {
+    const d = draft[p.id]
+    if (!d || d.h === "" || d.a === "") return toast.error("Введите счёт")
+    const h = Number(d.h), a = Number(d.a)
+    if (!Number.isInteger(h) || !Number.isInteger(a) || h < 0 || a < 0) return toast.error("Некорректный счёт")
+    setBusy(p.id)
+    const { error } = await supabase.from("predictions").update({ home_score: h, away_score: a }).eq("id", p.id)
+    setBusy(null)
+    if (error) return toast.error(error.message)
+    toast.success("Прогноз изменён")
+    loadPreds(matchId)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Матч</Label>
+        <select value={matchId} onChange={e=>setMatchId(e.target.value)} className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm">
+          {matches.map(m => (
+            <option key={m.id} value={m.id}>
+              {new Date(m.kickoff).toLocaleString("ru-RU", { day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit" })} · {m.home_team} — {m.away_team}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {started && <p className="text-xs text-gold">⚠ Матч уже начался — изменение прогнозов повлияет на уже начисленные очки.</p>}
+
+      {preds.length === 0
+        ? <p className="text-sm text-muted-foreground">На этот матч прогнозов нет.</p>
+        : (
+          <div className="space-y-2">
+            {[...preds]
+              .sort((a, b) => (profs[a.user_id]?.username ?? "").localeCompare(profs[b.user_id]?.username ?? ""))
+              .map(p => {
+                const d = draft[p.id] ?? { h:"", a:"" }
+                return (
+                  <div key={p.id} className="rounded-lg border border-border bg-card p-3 flex flex-wrap items-center gap-3">
+                    <div className="flex-1 min-w-[150px]">
+                      <div className="font-medium">{profs[p.user_id]?.username ?? "?"}</div>
+                      <div className="text-xs text-muted-foreground">{profs[p.user_id]?.email}</div>
+                    </div>
+                    <Input className="w-14 text-center" inputMode="numeric" value={d.h} onChange={e=>setDraft(s=>({...s,[p.id]:{...d,h:e.target.value.replace(/\D/g,"")}}))} />
+                    <span>:</span>
+                    <Input className="w-14 text-center" inputMode="numeric" value={d.a} onChange={e=>setDraft(s=>({...s,[p.id]:{...d,a:e.target.value.replace(/\D/g,"")}}))} />
+                    <Button size="sm" onClick={()=>save(p)} disabled={busy===p.id}><Save className="size-3.5 mr-1" />Сохранить</Button>
+                  </div>
+                )
+              })}
+          </div>
+        )
+      }
     </div>
   )
 }
