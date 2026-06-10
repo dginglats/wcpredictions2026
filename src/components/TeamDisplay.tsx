@@ -1,28 +1,39 @@
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 /**
  * Renders a country flag.
  * - If `flag` is a 2-letter ISO code (e.g. "MX", "ZA"), shows a real flag image (works on every platform).
+ * - If `flag` is an http(s) URL (e.g. a logo from the sync API), shows that image.
  * - Otherwise falls back to rendering the raw value (e.g. an emoji flag) as text.
  */
 function Flag({ flag, size }: { flag: string; size: "sm" | "md" }) {
-  const code = flag.trim()
-  const isIso = /^[A-Za-z]{2}$/.test(code)
-  const box = size === "sm" ? "w-10 h-10" : "w-12 h-12 md:w-14 md:h-14"
+  const code = flag.trim();
+  const isIso = /^[A-Za-z]{2}$/.test(code) || /^gb-(eng|sct|wls|nir)$/i.test(code);
+  const isUrl = /^https?:\/\//i.test(code);
+  const box = size === "sm" ? "w-10 h-10" : "w-12 h-12 md:w-14 md:h-14";
 
-  if (isIso) {
-    const lower = code.toLowerCase()
+  if (isIso || isUrl) {
+    const lower = code.toLowerCase();
+    const src = isUrl ? code : `https://flagcdn.com/w160/${lower}.png`;
+    const srcSet = isUrl
+      ? undefined
+      : `https://flagcdn.com/w160/${lower}.png 1x, https://flagcdn.com/w320/${lower}.png 2x`;
     return (
-      <div className={cn("grid shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-secondary/40 shadow-card", box)}>
+      <div
+        className={cn(
+          "grid shrink-0 place-items-center overflow-hidden rounded-xl border border-border bg-secondary/40 shadow-card",
+          box,
+        )}
+      >
         <img
-          src={`https://flagcdn.com/w160/${lower}.png`}
-          srcSet={`https://flagcdn.com/w160/${lower}.png 1x, https://flagcdn.com/w320/${lower}.png 2x`}
+          src={src}
+          srcSet={srcSet}
           alt={code}
           loading="lazy"
-          className="h-full w-full object-cover"
+          className={cn("h-full w-full", isUrl ? "object-contain p-1" : "object-cover")}
         />
       </div>
-    )
+    );
   }
 
   return (
@@ -35,7 +46,7 @@ function Flag({ flag, size }: { flag: string; size: "sm" | "md" }) {
     >
       {code}
     </div>
-  )
+  );
 }
 
 /**
@@ -48,10 +59,10 @@ export function TeamDisplay({
   size = "md",
   className,
 }: {
-  flag?: string | null
-  name: string
-  size?: "sm" | "md"
-  className?: string
+  flag?: string | null;
+  name: string;
+  size?: "sm" | "md";
+  className?: string;
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col items-center gap-1.5 text-center", className)}>
@@ -65,5 +76,5 @@ export function TeamDisplay({
         {name}
       </div>
     </div>
-  )
+  );
 }
