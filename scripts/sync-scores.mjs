@@ -79,6 +79,9 @@ const SB_WRITE = {
 };
 const SB_READ = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` };
 
+// Set to false if the matches.external_id column hasn't been migrated yet.
+let HAS_EXT = true;
+
 /**
  * Safe, secret-free diagnostics: validates that the service key matches the project
  * in SUPABASE_URL and is actually a server-side key. Prints nothing sensitive.
@@ -267,11 +270,23 @@ async function fetchFixtures() {
 }
 
 async function getDbMatches() {
-  const res = await fetch(
-    `${BASE}/rest/v1/matches?select=id,external_id,home_team,away_team,kickoff,stadium,city,stage,group_name,status,home_score,away_score`,
-    { headers: SB_READ },
-  );
-  if (!res.ok) throw new Error(`Supabase read failed: ${await res.text()}`);
+  const base =
+    "id,home_team,away_team,kickoff,stadium,city,stage,group_name,status,home_score,away_score";
+  let res = await fetch(`${BASE}/rest/v1/matches?select=external_id,${base}`, { headers: SB_READ });
+  if (!res.ok) {
+    const text = await res.text();
+    // Gracefully run without the migration: retry without the external_id column.
+    if (/external_id/.test(text) && /column|does not exist|schema cache/i.test(text)) {
+      HAS_EXT = false;
+      console.log(
+        "ℹ️  matches.external_id column not found — running without it (apply the migration for more robust linking).",
+      );
+      res = await fetch(`${BASE}/rest/v1/matches?select=${base}`, { headers: SB_READ });
+      if (!res.ok) throw new Error(`Supabase read failed: ${await res.text()}`);
+    } else {
+      throw new Error(`Supabase read failed: ${text}`);
+    }
+  }
   return res.json();
 }
 
@@ -371,9 +386,10 @@ async function main() {
     if (!existing) existing = findUnlinked(row, unlinked);
 
     if (existing) {
-      const fields = IMPORT
+      let fields = IMPORT
         ? ALL_FIELDS
         : [...LIVE_FIELDS, ...(existing.external_id ? [] : ["external_id"])];
+      if (!HAS_EXT) fields = fields.filter((f) => f !== "external_id");
       const patch = {};
       for (const f of fields) {
         if (existing[f] !== row[f]) patch[f] = row[f];
@@ -387,7 +403,9 @@ async function main() {
       const score = row.home_score != null ? ` ${row.home_score}:${row.away_score}` : "";
       console.log(`  ✏️  ${row.home_team} — ${row.away_team} [${row.status}${score}]`);
     } else if (IMPORT) {
-      await insertMatch(row);
+      const insertRow = { ...row };
+      if (!HAS_EXT) delete insertRow.external_id;
+      await insertMatch(insertRow);
       inserted++;
       console.log(`  ➕ ${row.home_team} — ${row.away_team} (${row.stage})`);
     } else {
