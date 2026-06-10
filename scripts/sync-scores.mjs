@@ -13,11 +13,11 @@
  * Supabase Realtime pushes the change to every open browser. No app deploy needed.
  *
  * Env (from .env / .env.local / process.env):
- *   API_FOOTBALL_KEY              — api-sports.io key (required)
+ *   FOOTBALL_DATA_TOKEN           — football-data.org API token (required)
  *   SUPABASE_URL | VITE_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY     — service role (bypasses RLS)
- *   API_FOOTBALL_LEAGUE           — optional, default 1 (FIFA World Cup)
- *   API_FOOTBALL_SEASON           — optional, default 2026
+ *   FOOTBALL_DATA_COMPETITION     — optional, default WC (FIFA World Cup)
+ *   FOOTBALL_DATA_SEASON          — optional, e.g. 2026 (default: current season)
  */
 import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -52,17 +52,17 @@ const env = {
   ...process.env,
 };
 
-const API_KEY = env.API_FOOTBALL_KEY;
+const FD_TOKEN = env.FOOTBALL_DATA_TOKEN;
 const SUPABASE_URL = env.SUPABASE_URL || env.VITE_SUPABASE_URL;
 const SERVICE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
-const LEAGUE = env.API_FOOTBALL_LEAGUE || "1"; // FIFA World Cup
-const SEASON = env.API_FOOTBALL_SEASON || "2026";
+const COMPETITION = env.FOOTBALL_DATA_COMPETITION || "WC"; // FIFA World Cup
+const SEASON = env.FOOTBALL_DATA_SEASON || ""; // optional; default = current season
 
 const IMPORT = process.argv.includes("--import");
 
-if (!API_KEY || !SUPABASE_URL || !SERVICE_KEY) {
+if (!FD_TOKEN || !SUPABASE_URL || !SERVICE_KEY) {
   const missing = [
-    ...(!API_KEY ? ["API_FOOTBALL_KEY"] : []),
+    ...(!FD_TOKEN ? ["FOOTBALL_DATA_TOKEN"] : []),
     ...(!SUPABASE_URL ? ["SUPABASE_URL (or VITE_SUPABASE_URL)"] : []),
     ...(!SERVICE_KEY ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
   ];
@@ -197,76 +197,65 @@ const COUNTRY = {
 
 const norm = (s) => (s || "").toLowerCase().replace(/[^a-zа-яё0-9]/gi, "");
 
-function team(apiTeam) {
-  const hit = COUNTRY[norm(apiTeam.name)];
-  return hit
-    ? { name: hit.ru, flag: hit.flag }
-    : { name: apiTeam.name, flag: apiTeam.logo || null };
+function team(t) {
+  const name = t?.name;
+  if (!name) return { name: "TBD", flag: null }; // undecided knockout slot
+  const hit = COUNTRY[norm(name)];
+  return hit ? { name: hit.ru, flag: hit.flag } : { name, flag: t.crest || null };
 }
 
-function mapStage(round = "") {
-  const r = round.toLowerCase();
-  if (/round of 32/.test(r)) return { stage: "round_of_32", group_name: null };
-  if (/round of 16|8th finals/.test(r)) return { stage: "round_of_16", group_name: null };
-  if (/quarter/.test(r)) return { stage: "quarter_final", group_name: null };
-  if (/semi/.test(r)) return { stage: "semi_final", group_name: null };
-  if (/3rd place|third place/.test(r)) return { stage: "third_place", group_name: null };
-  if (/\bfinal\b/.test(r)) return { stage: "final", group_name: null };
-  const g = round.match(/group ([a-l])\b/i);
+// football-data.org stage enum → our match_stage; group letter from `group` field.
+function mapStage(stage = "", group) {
+  const s = (stage || "").toUpperCase();
+  if (s.includes("THIRD") || s.includes("3RD")) return { stage: "third_place", group_name: null };
+  if (s.includes("SEMI")) return { stage: "semi_final", group_name: null };
+  if (s.includes("QUARTER")) return { stage: "quarter_final", group_name: null };
+  if (s.includes("LAST_16") || s.includes("ROUND_OF_16") || s.includes("EIGHTH"))
+    return { stage: "round_of_16", group_name: null };
+  if (s.includes("LAST_32") || s.includes("ROUND_OF_32"))
+    return { stage: "round_of_32", group_name: null };
+  if (s.includes("FINAL")) return { stage: "final", group_name: null };
+  const g = (group || "").match(/([A-L])\s*$/i);
   return { stage: "group", group_name: g ? g[1].toUpperCase() : null };
 }
 
-function mapStatus(short) {
-  if (["1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP"].includes(short)) return "live";
-  if (["FT", "AET", "PEN"].includes(short)) return "finished";
-  return "scheduled"; // NS, TBD, PST, CANC, ABD, AWD, WO
+function mapStatus(s) {
+  if (["IN_PLAY", "PAUSED"].includes(s)) return "live";
+  if (s === "FINISHED") return "finished";
+  return "scheduled"; // SCHEDULED, TIMED, POSTPONED, SUSPENDED, CANCELLED
 }
 
-function mapFixture(f) {
-  const home = team(f.teams.home);
-  const away = team(f.teams.away);
-  const { stage, group_name } = mapStage(f.league?.round);
-  const status = mapStatus(f.fixture?.status?.short);
+function mapFixture(m) {
+  const home = team(m.homeTeam);
+  const away = team(m.awayTeam);
+  const { stage, group_name } = mapStage(m.stage, m.group);
+  const status = mapStatus(m.status);
+  const ft = m.score?.fullTime ?? {};
   const scored = status !== "scheduled";
   return {
-    external_id: String(f.fixture.id),
+    external_id: String(m.id),
     home_team: home.name,
     away_team: away.name,
     home_flag: home.flag,
     away_flag: away.flag,
-    kickoff: f.fixture.date,
-    stadium: f.fixture?.venue?.name ?? null,
-    city: f.fixture?.venue?.city ?? null,
+    kickoff: m.utcDate,
     stage,
     group_name,
     status,
-    home_score: scored && f.goals?.home != null ? f.goals.home : null,
-    away_score: scored && f.goals?.away != null ? f.goals.away : null,
+    home_score: scored && ft.home != null ? ft.home : null,
+    away_score: scored && ft.away != null ? ft.away : null,
   };
 }
 
 async function fetchFixtures() {
-  const all = [];
-  let page = 1;
-  for (;;) {
-    const url = `https://v3.football.api-sports.io/fixtures?league=${LEAGUE}&season=${SEASON}&page=${page}`;
-    const res = await fetch(url, { headers: { "x-apisports-key": API_KEY } });
-    if (!res.ok) throw new Error(`API-Football ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const json = await res.json();
-    const errs = json.errors;
-    if (
-      errs &&
-      ((Array.isArray(errs) && errs.length) ||
-        (typeof errs === "object" && Object.keys(errs).length))
-    ) {
-      throw new Error(`API-Football error: ${JSON.stringify(errs)}`);
-    }
-    all.push(...(json.response ?? []));
-    const total = json.paging?.total ?? 1;
-    if (page >= total) break;
-    page++;
+  const qs = SEASON ? `?season=${SEASON}` : "";
+  const url = `https://api.football-data.org/v4/competitions/${COMPETITION}/matches${qs}`;
+  const res = await fetch(url, { headers: { "X-Auth-Token": FD_TOKEN } });
+  if (!res.ok) {
+    throw new Error(`football-data.org ${res.status}: ${(await res.text()).slice(0, 300)}`);
   }
-  return all.map(mapFixture);
+  const json = await res.json();
+  return (json.matches ?? []).map(mapFixture);
 }
 
 async function getDbMatches() {
@@ -323,7 +312,7 @@ function findUnlinked(row, unlinked) {
 
 async function main() {
   console.log(
-    `🔌 Supabase: ${BASE} · league=${LEAGUE} season=${SEASON} · mode=${IMPORT ? "import" : "live"}`,
+    `🔌 Supabase: ${BASE} · competition=${COMPETITION} season=${SEASON || "current"} · mode=${IMPORT ? "import" : "live"}`,
   );
   preflight();
 
@@ -362,6 +351,8 @@ async function main() {
 
   // In live mode only touch score/status to avoid clobbering schedule and firing extra recalcs.
   const LIVE_FIELDS = ["status", "home_score", "away_score"];
+  // No stadium/city: football-data.org free tier omits venue, so we never overwrite
+  // any manually-seeded stadium/city with null.
   const ALL_FIELDS = [
     "external_id",
     "home_team",
@@ -369,8 +360,6 @@ async function main() {
     "home_flag",
     "away_flag",
     "kickoff",
-    "stadium",
-    "city",
     "stage",
     "group_name",
     "status",
