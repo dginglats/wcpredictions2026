@@ -1,0 +1,39 @@
+name: Sync WC scores
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # live score/status updates (the script self-gates to save API quota)
+    - cron: "0 4 * * *" # daily full fixture import (picks up schedule / knockout-bracket changes)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        default: import
+        type: choice
+        options: [import, live]
+
+concurrency:
+  group: sync-scores
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Sync fixtures & scores
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ "${{ github.event.schedule }}" = "0 4 * * *" ] || [ "${{ github.event.inputs.mode }}" = "import" ]; then
+            echo "Running full import…"
+            node scripts/sync-scores.mjs --import
+          else
+            echo "Running live update…"
+            node scripts/sync-scores.mjs
+          fi

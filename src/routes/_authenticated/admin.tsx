@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { toast } from "sonner"
-import { Plus, Trash2, Save, RefreshCw } from "lucide-react"
+import { Plus, Trash2, Save } from "lucide-react"
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage })
 
@@ -72,7 +72,6 @@ function MatchesAdmin() {
 
   return (
     <div className="space-y-6">
-      <SyncPanel onSynced={load} />
       <form onSubmit={create} className="rounded-xl border border-border bg-card p-5 shadow-card space-y-4">
         <h2 className="font-semibold">Добавить матч</h2>
         <div className="grid sm:grid-cols-2 gap-3">
@@ -97,61 +96,6 @@ function MatchesAdmin() {
         <h2 className="font-semibold">Все матчи ({matches.length})</h2>
         {matches.map(m => <MatchAdminRow key={m.id} m={m} onResult={setResult} onDelete={remove} />)}
       </div>
-    </div>
-  )
-}
-
-function SyncPanel({ onSynced }: { onSynced: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const [log, setLog] = useState<{ level: string; message: string; created_at: string }[]>([])
-  const [lastSync, setLastSync] = useState<string | null>(null)
-
-  async function loadStatus() {
-    const [{ data: logs }, { data: m }] = await Promise.all([
-      supabase.from("sync_log").select("level, message, created_at").order("id", { ascending: false }).limit(8),
-      supabase.from("matches").select("last_synced").not("last_synced", "is", null).order("last_synced", { ascending: false }).limit(1),
-    ])
-    setLog((logs ?? []) as typeof log)
-    setLastSync((m?.[0] as { last_synced?: string } | undefined)?.last_synced ?? null)
-  }
-  useEffect(() => { loadStatus() }, [])
-
-  async function syncNow() {
-    setBusy(true)
-    const { data, error } = await supabase.rpc("trigger_sync")
-    setBusy(false)
-    if (error) { toast.error(error.message); return }
-    const r = data as { ok?: boolean; updated?: number; unmatched?: number; error?: string }
-    if (r?.ok) toast.success(`Обновлено матчей: ${r.updated ?? 0}` + (r.unmatched ? `, не сопоставлено: ${r.unmatched}` : ""))
-    else toast.error(`Синхронизация не удалась: ${r?.error ?? "см. журнал"}`)
-    await loadStatus()
-    onSynced()
-  }
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-3">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="font-semibold">Автоматическая загрузка результатов</h2>
-          <p className="text-sm text-muted-foreground">
-            Результаты тянутся из football-data.org каждые 2 минуты. Очки, статистика и таблица обновляются сами.
-            {lastSync && <> Последнее обновление: {new Date(lastSync).toLocaleString()}</>}
-          </p>
-        </div>
-        <Button onClick={syncNow} disabled={busy}>
-          <RefreshCw className={"size-4 mr-1" + (busy ? " animate-spin" : "")} />
-          {busy ? "Обновляю..." : "Обновить сейчас"}
-        </Button>
-      </div>
-      {log.length > 0 && (
-        <div className="rounded-md border border-border bg-background p-3 text-xs font-mono space-y-1 max-h-40 overflow-auto">
-          {log.map((l, i) => (
-            <div key={i} className={l.level === "error" ? "text-destructive" : l.level === "warn" ? "text-amber-600" : "text-muted-foreground"}>
-              [{l.level}] {l.message}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
