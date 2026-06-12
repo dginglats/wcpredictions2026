@@ -21,12 +21,14 @@ export type Database = {
           away_team: string
           city: string | null
           created_at: string
+          external_id: number | null
           group_name: string | null
           home_flag: string | null
           home_score: number | null
           home_team: string
           id: string
           kickoff: string
+          last_synced: string | null
           stadium: string | null
           stage: Database["public"]["Enums"]["match_stage"]
           status: Database["public"]["Enums"]["match_status"]
@@ -38,12 +40,14 @@ export type Database = {
           away_team: string
           city?: string | null
           created_at?: string
+          external_id?: number | null
           group_name?: string | null
           home_flag?: string | null
           home_score?: number | null
           home_team: string
           id?: string
           kickoff: string
+          last_synced?: string | null
           stadium?: string | null
           stage?: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
@@ -55,17 +59,37 @@ export type Database = {
           away_team?: string
           city?: string | null
           created_at?: string
+          external_id?: number | null
           group_name?: string | null
           home_flag?: string | null
           home_score?: number | null
           home_team?: string
           id?: string
           kickoff?: string
+          last_synced?: string | null
           stadium?: string | null
           stage?: Database["public"]["Enums"]["match_stage"]
           status?: Database["public"]["Enums"]["match_status"]
           updated_at?: string
         }
+        Relationships: []
+      }
+      app_settings: {
+        Row: { key: string; value: string }
+        Insert: { key: string; value: string }
+        Update: { key?: string; value?: string }
+        Relationships: []
+      }
+      sync_log: {
+        Row: { id: number; level: string; message: string; created_at: string }
+        Insert: { id?: number; level?: string; message: string; created_at?: string }
+        Update: { id?: number; level?: string; message?: string; created_at?: string }
+        Relationships: []
+      }
+      team_aliases: {
+        Row: { api_norm: string; local_name: string }
+        Insert: { api_norm: string; local_name: string }
+        Update: { api_norm?: string; local_name?: string }
         Relationships: []
       }
       predictions: {
@@ -201,6 +225,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      trigger_sync: {
+        Args: Record<string, never>
+        Returns: Json
       }
     }
     Enums: {
