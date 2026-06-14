@@ -19,6 +19,7 @@ import { Route as AuthenticatedRulesRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedPredictionsRouteImport } from './routes/_authenticated/predictions'
 import { Route as AuthenticatedLeaderboardRouteImport } from './routes/_authenticated/leaderboard'
+import { Route as AuthenticatedBracketRouteImport } from './routes/_authenticated/bracket'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -72,6 +73,11 @@ const AuthenticatedLeaderboardRoute =
     path: '/leaderboard',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedBracketRoute = AuthenticatedBracketRouteImport.update({
+  id: '/bracket',
+  path: '/bracket',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
@@ -83,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/bracket': typeof AuthenticatedBracketRoute
   '/leaderboard': typeof AuthenticatedLeaderboardRoute
   '/predictions': typeof AuthenticatedPredictionsRoute
   '/profile': typeof AuthenticatedProfileRoute
@@ -95,6 +102,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/bracket': typeof AuthenticatedBracketRoute
   '/leaderboard': typeof AuthenticatedLeaderboardRoute
   '/predictions': typeof AuthenticatedPredictionsRoute
   '/profile': typeof AuthenticatedProfileRoute
@@ -109,6 +117,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/bracket': typeof AuthenticatedBracketRoute
   '/_authenticated/leaderboard': typeof AuthenticatedLeaderboardRoute
   '/_authenticated/predictions': typeof AuthenticatedPredictionsRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
@@ -123,6 +132,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/admin'
+    | '/bracket'
     | '/leaderboard'
     | '/predictions'
     | '/profile'
@@ -135,6 +145,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/admin'
+    | '/bracket'
     | '/leaderboard'
     | '/predictions'
     | '/profile'
@@ -148,6 +159,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/reset-password'
     | '/_authenticated/admin'
+    | '/_authenticated/bracket'
     | '/_authenticated/leaderboard'
     | '/_authenticated/predictions'
     | '/_authenticated/profile'
@@ -235,6 +247,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLeaderboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/bracket': {
+      id: '/_authenticated/bracket'
+      path: '/bracket'
+      fullPath: '/bracket'
+      preLoaderRoute: typeof AuthenticatedBracketRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/admin': {
       id: '/_authenticated/admin'
       path: '/admin'
@@ -247,6 +266,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedBracketRoute: typeof AuthenticatedBracketRoute
   AuthenticatedLeaderboardRoute: typeof AuthenticatedLeaderboardRoute
   AuthenticatedPredictionsRoute: typeof AuthenticatedPredictionsRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
@@ -257,6 +277,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedBracketRoute: AuthenticatedBracketRoute,
   AuthenticatedLeaderboardRoute: AuthenticatedLeaderboardRoute,
   AuthenticatedPredictionsRoute: AuthenticatedPredictionsRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,

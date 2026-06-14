@@ -1,12 +1,13 @@
 import { Link, Outlet, useRouter } from "@tanstack/react-router"
 import { useAuth } from "@/lib/auth"
-import { Trophy, Calendar, Target, BarChart3, BookOpen, Shield, LogOut, User, Menu, X } from "lucide-react"
+import { Trophy, Calendar, Target, BarChart3, BookOpen, Shield, LogOut, User, Menu, X, Network } from "lucide-react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 
 const navItems = [
   { to: "/schedule", label: "Расписание", icon: Calendar },
   { to: "/predictions", label: "Прогнозы", icon: Target },
+  { to: "/bracket", label: "Сетка", icon: Network },
   { to: "/leaderboard", label: "Таблица", icon: Trophy },
   { to: "/stats", label: "Статистика", icon: BarChart3 },
   { to: "/rules", label: "Правила", icon: BookOpen },
