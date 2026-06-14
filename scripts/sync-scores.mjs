@@ -329,7 +329,12 @@ async function main() {
       if (m.status === "live") return true;
       if (m.status !== "scheduled") return false;
       const k = new Date(m.kickoff).getTime();
-      return k <= now + 25 * 60 * 1000 && k >= now - 4 * 60 * 60 * 1000; // [-4h, +25min]
+      // Self-heals a missed kickoff: poll from 25 min before kickoff until 24 h after,
+      // so if a cron run is skipped/delayed (common with GitHub Actions schedules) and a
+      // match never flips to "live", the next run still finalizes it once it's FINISHED.
+      // Quota cost is negligible (≤1 API call per run), and a scheduled match older than
+      // 24 h is treated as postponed/cancelled and no longer polled.
+      return k <= now + 25 * 60 * 1000 && k >= now - 24 * 60 * 60 * 1000; // [-24h, +25min]
     });
     if (!active) {
       console.log("✓ No live or imminent matches — skipping API call (quota saved).");
