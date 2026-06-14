@@ -6,6 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, CartesianGrid,
   Legend, LineChart, Line, Cell, LabelList,
 } from "recharts"
+import { carEmblemDot } from "@/components/CarEmblem"
 
 export const Route = createFileRoute("/_authenticated/stats")({ component: StatsPage })
 
@@ -85,15 +86,34 @@ function StatsPage() {
           <h2 className="font-semibold mb-4">Рост очков по дням</h2>
           <div className="h-72">
             <ResponsiveContainer>
-              <LineChart data={series}>
+              <LineChart data={series} margin={{ top: 16, right: 34, left: 0, bottom: 0 }}>
                 <CartesianGrid stroke="rgba(255,255,255,0.05)" />
                 <XAxis dataKey="day" tick={{ fill: "#9ca3af", fontSize: 11 }} />
                 <YAxis tick={{ fill: "#9ca3af", fontSize: 11 }} />
                 <Tooltip contentStyle={{ background:"#1e293b", border:"1px solid #334155", borderRadius:8 }} />
                 <Legend />
-                {rows.map((r, i) => (
-                  <Line key={r.user_id ?? i} type="monotone" dataKey={r.username ?? "?"} stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]} strokeWidth={2.5} dot={{ r:3 }} />
-                ))}
+                {rows.map((r, i) => {
+                  const color = PLAYER_COLORS[i % PLAYER_COLORS.length]
+                  // Маленькая точка на промежуточных днях, эмблема машины — на последнем.
+                  const renderDot = (p: { cx?: number; cy?: number; index?: number; key?: string }) => {
+                    const { cx, cy, index, key } = p
+                    if (cx == null || cy == null) return <g key={key} />
+                    if (index === series.length - 1) return carEmblemDot(r.car, color, cx, cy, 28, key)
+                    return <circle key={key} cx={cx} cy={cy} r={2.5} fill={color} />
+                  }
+                  return (
+                    <Line
+                      key={r.user_id ?? i}
+                      type="monotone"
+                      dataKey={r.username ?? "?"}
+                      stroke={color}
+                      strokeWidth={2.5}
+                      dot={renderDot}
+                      activeDot={{ r: 4 }}
+                      isAnimationActive={false}
+                    />
+                  )
+                })}
               </LineChart>
             </ResponsiveContainer>
           </div>
