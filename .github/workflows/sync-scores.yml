@@ -24,6 +24,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      - name: Check required secrets are set
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          miss=0
+          for v in FOOTBALL_DATA_TOKEN SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY; do
+            val="${!v}"
+            if [ -z "$val" ]; then
+              echo "::error::Repo secret $v is MISSING — add it in Settings → Secrets and variables → Actions"
+              miss=1
+            else
+              echo "✓ $v present (${#val} chars, value hidden)"
+            fi
+          done
+          [ $miss -eq 0 ] || exit 1
       - name: Sync fixtures & scores
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
