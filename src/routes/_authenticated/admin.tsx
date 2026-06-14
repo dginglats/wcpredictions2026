@@ -8,8 +8,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Switch } from "@/components/ui/switch"
 import { toast } from "sonner"
-import { Plus, Trash2, Save } from "lucide-react"
+import { Plus, Trash2, Save, Clock } from "lucide-react"
+
+const LATE_BETTING_KEY = "late_betting_enabled"
 
 export const Route = createFileRoute("/_authenticated/admin")({ component: AdminPage })
 
@@ -27,10 +30,12 @@ function AdminPage() {
           <TabsTrigger value="matches">Матчи</TabsTrigger>
           <TabsTrigger value="predictions">Прогнозы</TabsTrigger>
           <TabsTrigger value="players">Игроки</TabsTrigger>
+          <TabsTrigger value="settings">Настройки</TabsTrigger>
         </TabsList>
         <TabsContent value="matches" className="mt-4 space-y-6"><MatchesAdmin /></TabsContent>
         <TabsContent value="predictions" className="mt-4"><PredictionsAdmin /></TabsContent>
         <TabsContent value="players" className="mt-4"><PlayersAdmin /></TabsContent>
+        <TabsContent value="settings" className="mt-4"><SettingsAdmin /></TabsContent>
       </Tabs>
     </div>
   )
@@ -221,6 +226,58 @@ function PredictionsAdmin() {
           </div>
         )
       }
+    </div>
+  )
+}
+
+function SettingsAdmin() {
+  const [lateBetting, setLateBetting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    const { data } = await supabase
+      .from("app_settings")
+      .select("bool_value")
+      .eq("key", LATE_BETTING_KEY)
+      .maybeSingle()
+    setLateBetting(Boolean(data?.bool_value))
+    setLoading(false)
+  }
+  useEffect(() => { load() }, [])
+
+  async function toggle(next: boolean) {
+    setBusy(true)
+    const { error } = await supabase
+      .from("app_settings")
+      .upsert({ key: LATE_BETTING_KEY, bool_value: next, updated_at: new Date().toISOString() })
+    setBusy(false)
+    if (error) return toast.error(error.message)
+    setLateBetting(next)
+    toast.success(next ? "Поздние ставки открыты" : "Поздние ставки закрыты")
+  }
+
+  if (loading) return <div className="text-sm text-muted-foreground">Загрузка...</div>
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 shadow-card space-y-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="font-semibold flex items-center gap-2">
+            <Clock className="size-4" />
+            Поздние ставки на завершённые матчи
+          </div>
+          <p className="text-xs text-muted-foreground max-w-prose">
+            Когда включено, участники, которые ещё не ставили, могут поставить прогноз на уже
+            начавшиеся и завершённые матчи. Уже сохранённые прогнозы изменить нельзя. Прогноз на
+            завершённый матч сразу получает очки. Окно открыто, пока вы его не выключите.
+          </p>
+        </div>
+        <Switch checked={lateBetting} disabled={busy} onCheckedChange={toggle} />
+      </div>
+      <p className={`text-xs font-medium ${lateBetting ? "text-primary" : "text-muted-foreground"}`}>
+        {lateBetting ? "● Открыто — участники могут досдать прогнозы" : "○ Закрыто — обычный режим"}
+      </p>
     </div>
   )
 }

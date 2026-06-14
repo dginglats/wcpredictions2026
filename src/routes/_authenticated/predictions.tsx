@@ -35,19 +35,27 @@ function PredictionsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [leaderIds, setLeaderIds] = useState<Set<string>>(new Set());
   const [isLeader, setIsLeader] = useState(false);
+  const [lateBetting, setLateBetting] = useState(false);
 
   async function reload() {
     if (!user) return;
-    const [{ data: ms }, { data: allPs }, { data: lb }, { data: profs }] = await Promise.all([
-      supabase.from("matches").select("*").order("kickoff"),
-      supabase
-        .from("predictions")
-        .select("id, match_id, user_id, home_score, away_score, outcome_type, points"),
-      supabase.from("leaderboard").select("*"),
-      supabase.from("profiles").select("id, username, car"),
-    ]);
+    const [{ data: ms }, { data: allPs }, { data: lb }, { data: profs }, { data: setting }] =
+      await Promise.all([
+        supabase.from("matches").select("*").order("kickoff"),
+        supabase
+          .from("predictions")
+          .select("id, match_id, user_id, home_score, away_score, outcome_type, points"),
+        supabase.from("leaderboard").select("*"),
+        supabase.from("profiles").select("id, username, car"),
+        supabase
+          .from("app_settings")
+          .select("bool_value")
+          .eq("key", "late_betting_enabled")
+          .maybeSingle(),
+      ]);
 
     setMatches((ms ?? []) as Match[]);
+    setLateBetting(Boolean(setting?.bool_value));
 
     // No FK from predictions.user_id -> profiles.id, so join profiles in JS.
     const profMap: Record<string, { username: string; car: string | null }> = {};
@@ -92,11 +100,28 @@ function PredictionsPage() {
     reload();
   }, [user]);
 
+  // Live-refresh when the admin opens/closes the late-betting window.
+  useEffect(() => {
+    const ch = supabase
+      .channel("app_settings_changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "app_settings" }, () =>
+        reload(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   /** Betting window: opens at 00:00 the day before the match day, closes at kickoff */
   function canBet(m: Match): { allowed: boolean; reason?: string } {
     const kickoff = new Date(m.kickoff).getTime();
     const now = Date.now();
     if (m.status !== "scheduled" || now >= kickoff) {
+      // Match has started/finished — only the admin's late-betting window unlocks it,
+      // and only for players who haven't placed a prediction yet.
+      if (lateBetting) return { allowed: true };
       return { allowed: false, reason: "Матч начался" };
     }
     const opensAtMs = bettingOpensAt(m.kickoff);
@@ -174,6 +199,20 @@ function PredictionsPage() {
           )}
         </p>
       </div>
+
+      {lateBetting && (
+        <div className="rounded-xl border border-primary/40 bg-primary/10 p-4 flex items-start gap-3">
+          <Clock className="size-5 text-primary shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <div className="font-semibold text-primary">Открыты поздние ставки</div>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              Можно поставить прогноз на уже начавшиеся и завершённые матчи, если вы ещё не ставили.
+              Прогноз на завершённый матч сразу учитывается в очках. Окно закроется, когда админ его
+              выключит.
+            </p>
+          </div>
+        </div>
+      )}
 
       <Tabs defaultValue="mine">
         <TabsList className="grid w-full grid-cols-2 max-w-sm mb-2">
@@ -310,6 +349,8 @@ function PredictionsPage() {
                 const p = preds[m.id];
                 const b = outcomeBadge(p?.outcome_type ?? null);
                 const others = otherPreds[m.id] ?? [];
+                const d = draft[m.id] ?? { h: "", a: "" };
+                const canLateBet = !p && canBet(m).allowed;
                 return (
                   <div
                     key={m.id}
@@ -350,7 +391,46 @@ function PredictionsPage() {
                         <span className="text-sm font-bold text-gold">+{p.points ?? 0}</span>
                       </div>
                     )}
-                    {!p && (
+                    {canLateBet && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        <div className="flex items-center justify-center gap-1.5 text-[11px] text-primary font-medium mb-2">
+                          <Clock className="size-3" />
+                          Поздняя ставка — изменить потом нельзя
+                        </div>
+                        <div className="flex items-center justify-center gap-2">
+                          <Input
+                            className="size-11 rounded-lg border-2 border-primary/50 bg-background text-center text-lg font-bold tabular-nums"
+                            inputMode="numeric"
+                            placeholder="–"
+                            value={d.h}
+                            onChange={(e) =>
+                              setDraft((s) => ({
+                                ...s,
+                                [m.id]: { ...d, h: e.target.value.replace(/\D/g, "") },
+                              }))
+                            }
+                          />
+                          <span className="text-lg font-bold text-muted-foreground">:</span>
+                          <Input
+                            className="size-11 rounded-lg border-2 border-primary/50 bg-background text-center text-lg font-bold tabular-nums"
+                            inputMode="numeric"
+                            placeholder="–"
+                            value={d.a}
+                            onChange={(e) =>
+                              setDraft((s) => ({
+                                ...s,
+                                [m.id]: { ...d, a: e.target.value.replace(/\D/g, "") },
+                              }))
+                            }
+                          />
+                          <Button size="sm" onClick={() => save(m)} disabled={busy === m.id}>
+                            <Save className="size-3.5 mr-1" />
+                            Сохранить
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {!p && !canLateBet && (
                       <div className="text-center text-xs text-muted-foreground mt-3">
                         Прогноз не сделан
                       </div>

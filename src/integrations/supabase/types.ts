@@ -8,6 +8,24 @@ export type Database = {
   };
   public: {
     Tables: {
+      app_settings: {
+        Row: {
+          bool_value: boolean;
+          key: string;
+          updated_at: string;
+        };
+        Insert: {
+          bool_value?: boolean;
+          key: string;
+          updated_at?: string;
+        };
+        Update: {
+          bool_value?: boolean;
+          key?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       matches: {
         Row: {
           away_flag: string | null;
@@ -197,6 +215,10 @@ export type Database = {
           _role: Database["public"]["Enums"]["app_role"];
           _user_id: string;
         };
+        Returns: boolean;
+      };
+      late_betting_enabled: {
+        Args: Record<PropertyKey, never>;
         Returns: boolean;
       };
     };
