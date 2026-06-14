@@ -190,3 +190,167 @@ export function stepComplete(
 export function bracketComplete(data: BracketData, groupTeams: Record<string, string[]>): boolean {
   return [0, 1, 2, 3, 4, 5, 6].every((s) => stepComplete(s, data, groupTeams));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Флаги: данные хранят emoji (🇲🇽), которые на Windows не рисуются. Переводим
+// emoji → ISO-код страны, чтобы показать картинку флага (как в TeamDisplay).
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Эмодзи-флаг / ISO-код / URL → код для flagcdn ("mx", "gb-eng") или URL. null если не распознан. */
+export function flagCode(flag?: string | null): string | null {
+  if (!flag) return null;
+  const f = flag.trim();
+  if (!f) return null;
+  if (/^https?:\/\//i.test(f)) return f; // уже URL
+  if (/^[a-z]{2}$/i.test(f)) return f.toLowerCase(); // уже ISO-код
+  if (/^gb-(eng|sct|wls|nir)$/i.test(f)) return f.toLowerCase();
+
+  const cps = [...f].map((c) => c.codePointAt(0) ?? 0);
+  // Пара regional indicator symbols (🇲🇽 → MX)
+  const ri = cps.filter((cp) => cp >= 0x1f1e6 && cp <= 0x1f1ff);
+  if (ri.length >= 2) {
+    const a = String.fromCharCode(ri[0] - 0x1f1e6 + 65);
+    const b = String.fromCharCode(ri[1] - 0x1f1e6 + 65);
+    return (a + b).toLowerCase();
+  }
+  // Tag-последовательности (🏴 + теги): Англия/Шотландия/Уэльс
+  const tags = cps
+    .filter((cp) => cp >= 0xe0061 && cp <= 0xe007a)
+    .map((cp) => String.fromCharCode(cp - 0xe0000))
+    .join("");
+  if (tags.startsWith("gb") && tags.length >= 5) return `gb-${tags.slice(2, 5)}`;
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Реальные результаты: считаются из таблицы matches по мере завершения этапов.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface ActualMatch {
+  home_team: string;
+  away_team: string;
+  home_score: number | null;
+  away_score: number | null;
+  status: string;
+  stage: string;
+  group_name: string | null;
+}
+
+export interface Standing {
+  team: string;
+  played: number;
+  w: number;
+  d: number;
+  l: number;
+  gf: number;
+  ga: number;
+  gd: number;
+  pts: number;
+}
+
+/**
+ * Сортировка таблицы группы: очки → разница мячей → забитые → имя.
+ * (Упрощённо: без личных встреч — официальный тай-брейк ФИФА сложнее.)
+ */
+function cmpStanding(a: Standing, b: Standing): number {
+  return b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team);
+}
+
+/** Фактические таблицы групп из сыгранных матчей + флаг «группа доиграна». */
+export function computeActualGroups(matches: ActualMatch[]): {
+  standings: Record<string, Standing[]>;
+  done: Record<string, boolean>;
+} {
+  const byGroup: Record<string, ActualMatch[]> = {};
+  for (const m of matches) {
+    if (m.stage !== "group" || !m.group_name) continue;
+    (byGroup[m.group_name] ??= []).push(m);
+  }
+  const standings: Record<string, Standing[]> = {};
+  const done: Record<string, boolean> = {};
+  for (const g of GROUP_LETTERS) {
+    const ms = byGroup[g] ?? [];
+    const tbl: Record<string, Standing> = {};
+    const ensure = (t: string) =>
+      (tbl[t] ??= { team: t, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, gd: 0, pts: 0 });
+    let finished = 0;
+    for (const m of ms) {
+      if (m.status !== "finished" || m.home_score == null || m.away_score == null) continue;
+      finished++;
+      const h = ensure(m.home_team);
+      const a = ensure(m.away_team);
+      const hs = m.home_score;
+      const as = m.away_score;
+      h.played++;
+      a.played++;
+      h.gf += hs;
+      h.ga += as;
+      a.gf += as;
+      a.ga += hs;
+      if (hs > as) {
+        h.w++;
+        a.l++;
+        h.pts += 3;
+      } else if (hs < as) {
+        a.w++;
+        h.l++;
+        a.pts += 3;
+      } else {
+        h.d++;
+        a.d++;
+        h.pts++;
+        a.pts++;
+      }
+    }
+    for (const s of Object.values(tbl)) s.gd = s.gf - s.ga;
+    standings[g] = Object.values(tbl).sort(cmpStanding);
+    done[g] = ms.length > 0 && finished === ms.length;
+  }
+  return { standings, done };
+}
+
+/** Буквы групп, чьи третьи места реально прошли (8 лучших). Пусто, пока не доиграны все группы. */
+export function actualBestThirds(
+  standings: Record<string, Standing[]>,
+  done: Record<string, boolean>,
+): string[] {
+  if (!GROUP_LETTERS.every((g) => done[g])) return [];
+  return GROUP_LETTERS.map((g) => ({ g: g as string, s: standings[g]?.[2] }))
+    .filter((x) => Boolean(x.s))
+    .sort((x, y) => cmpStanding(x.s as Standing, y.s as Standing))
+    .slice(0, 8)
+    .map((x) => x.g);
+}
+
+const STAGE_KEY: Record<string, "r32" | "r16" | "qf" | "sf"> = {
+  round_of_32: "r32",
+  round_of_16: "r16",
+  quarter_final: "qf",
+  semi_final: "sf",
+};
+
+/** Фактические победители раундов плей-офф (по сыгранным матчам). */
+export function actualKnockout(matches: ActualMatch[]): {
+  advanced: Record<"r32" | "r16" | "qf" | "sf", Set<string>>;
+  champion: string;
+  third: string;
+} {
+  const advanced = {
+    r32: new Set<string>(),
+    r16: new Set<string>(),
+    qf: new Set<string>(),
+    sf: new Set<string>(),
+  };
+  let champion = "";
+  let third = "";
+  for (const m of matches) {
+    if (m.status !== "finished" || m.home_score == null || m.away_score == null) continue;
+    if (m.home_score === m.away_score) continue; // победитель не определён по основному счёту
+    const w = m.home_score > m.away_score ? m.home_team : m.away_team;
+    const key = STAGE_KEY[m.stage];
+    if (key) advanced[key].add(w);
+    if (m.stage === "final") champion = w;
+    if (m.stage === "third_place") third = w;
+  }
+  return { advanced, champion, third };
+}
