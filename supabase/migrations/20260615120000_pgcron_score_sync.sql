@@ -103,11 +103,22 @@ BEGIN
     RETURN jsonb_build_object('ok', false, 'error', 'token_missing');
   END IF;
 
-  SELECT r.status, r.content INTO v_http_status, v_body
-  FROM extensions.http((
-    'GET', 'https://api.football-data.org/v4/competitions/WC/matches',
-    ARRAY[extensions.http_header('X-Auth-Token', v_token)], NULL, NULL
-  )::extensions.http_request) AS r;
+  -- football-data.org иногда отвечает медленно; дефолтный таймаут http (~1с) мал.
+  PERFORM extensions.http_set_curlopt('CURLOPT_CONNECTTIMEOUT_MS', '8000');
+  PERFORM extensions.http_set_curlopt('CURLOPT_TIMEOUT_MS', '25000');
+
+  BEGIN
+    SELECT r.status, r.content INTO v_http_status, v_body
+    FROM extensions.http((
+      'GET', 'https://api.football-data.org/v4/competitions/WC/matches',
+      ARRAY[extensions.http_header('X-Auth-Token', v_token)], NULL, NULL
+    )::extensions.http_request) AS r;
+  EXCEPTION WHEN OTHERS THEN
+    -- разовый сетевой сбой: логируем предупреждение, следующий тик повторит
+    INSERT INTO public.sync_log(level, message)
+      VALUES ('warn', format('Запрос к API не удался (повтор через 2 мин): %s', left(SQLERRM, 200)));
+    RETURN jsonb_build_object('ok', false, 'error', 'http_failed');
+  END;
 
   IF v_http_status <> 200 THEN
     INSERT INTO public.sync_log(level, message)
