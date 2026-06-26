@@ -36,6 +36,7 @@ function PredictionsPage() {
   const [leaderIds, setLeaderIds] = useState<Set<string>>(new Set());
   const [isLeader, setIsLeader] = useState(false);
   const [lateBetting, setLateBetting] = useState(false);
+  const [participantCount, setParticipantCount] = useState(0);
 
   async function reload() {
     if (!user) return;
@@ -83,6 +84,8 @@ function PredictionsPage() {
     setDraft((d) => ({ ...drafts, ...d }));
     setOtherPreds(opMap);
     setAllPreds(apMap);
+    // Сколько всего участников реально играет (поставил хоть один прогноз).
+    setParticipantCount(new Set((allPs ?? []).map((p) => p.user_id)).size);
 
     const rows = (lb ?? []) as LeaderboardRow[];
     const maxPts = rows.reduce((mx, r) => Math.max(mx, r.total_points ?? 0), 0);
@@ -180,9 +183,20 @@ function PredictionsPage() {
   const future = matches.filter(
     (m) => new Date(m.kickoff).getTime() > now && m.status === "scheduled",
   );
-  const past = matches.filter(
-    (m) => m.status === "finished" || new Date(m.kickoff).getTime() <= now,
-  );
+  // Завершённые: свежие матчи сверху, самые первые — внизу.
+  const past = matches
+    .filter((m) => m.status === "finished" || new Date(m.kickoff).getTime() <= now)
+    .sort((a, b) => new Date(b.kickoff).getTime() - new Date(a.kickoff).getTime());
+  // Вкладка «Участников»: свежие сверху, и матч показываем только когда все
+  // участники уже сделали прогноз (чтобы нельзя было подсмотреть и списать).
+  // Начавшиеся/завершённые матчи раскрываем всегда — ставить уже поздно.
+  const participantsMatches = [...matches]
+    .filter((m) => {
+      if (m.status !== "scheduled") return true;
+      const preds = allPreds[m.id] ?? [];
+      return participantCount > 0 && preds.length >= participantCount;
+    })
+    .sort((a, b) => new Date(b.kickoff).getTime() - new Date(a.kickoff).getTime());
 
   return (
     <div className="space-y-6">
@@ -475,8 +489,16 @@ function PredictionsPage() {
 
         {/* ── PARTICIPANTS TAB ── */}
         <TabsContent value="participants" className="space-y-3 mt-4">
-          {matches.length === 0 && <Empty text="Матчей пока нет." />}
-          {matches.map((m) => {
+          {participantsMatches.length === 0 && (
+            <Empty
+              text={
+                matches.length === 0
+                  ? "Матчей пока нет."
+                  : "Пока нет матчей, где все участники уже сделали прогноз. Откроются, как только закроются ставки или каждый поставит свой счёт."
+              }
+            />
+          )}
+          {participantsMatches.map((m) => {
             const participants = allPreds[m.id] ?? [];
             const isFinished = m.status === "finished";
             return (
