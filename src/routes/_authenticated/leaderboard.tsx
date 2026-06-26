@@ -3,15 +3,21 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { LeaderboardRow } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
-import { Crown, Download, Trophy, Flame } from "lucide-react";
+import { Crown, Download, Trophy, Flame, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FunFacts } from "@/components/FunFacts";
+import { movementByUser, type DayPred } from "@/lib/standings";
+import { computeAchievements, type AchPrediction } from "@/lib/achievements";
+import type { BracketData } from "@/lib/bracket";
 
 export const Route = createFileRoute("/_authenticated/leaderboard")({ component: LeaderboardPage });
 
-/** Прогноз с минимумом полей для расчёта формы/серии/количества. */
+/** Прогноз с полями для формы/серии/ачивок/движения. */
 interface PredRow {
   user_id: string;
+  match_id: string;
+  home_score: number;
+  away_score: number;
   points: number | null;
   outcome_type: string | null;
   matches: { kickoff: string; status: string } | null;
@@ -29,13 +35,17 @@ function LeaderboardPage() {
   const { user } = useAuth();
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [preds, setPreds] = useState<PredRow[]>([]);
+  const [champions, setChampions] = useState<Array<{ user_id: string; champion: string }>>([]);
 
   async function load() {
-    const [{ data }, { data: ps }] = await Promise.all([
+    const [{ data }, { data: ps }, { data: brs }] = await Promise.all([
       supabase.from("leaderboard").select("*"),
       supabase
         .from("predictions")
-        .select("user_id, points, outcome_type, matches!inner(kickoff, status)"),
+        .select(
+          "user_id, match_id, home_score, away_score, points, outcome_type, matches!inner(kickoff, status)",
+        ),
+      supabase.from("bracket_predictions").select("user_id, data"),
     ]);
     const sorted = [...((data ?? []) as LeaderboardRow[])].sort(
       (a, b) =>
@@ -45,6 +55,12 @@ function LeaderboardPage() {
     );
     setRows(sorted);
     setPreds((ps ?? []) as unknown as PredRow[]);
+    setChampions(
+      ((brs ?? []) as { user_id: string; data: unknown }[]).map((b) => ({
+        user_id: b.user_id,
+        champion: (b.data as BracketData)?.final ?? "",
+      })),
+    );
   }
   useEffect(() => {
     load();
@@ -52,6 +68,7 @@ function LeaderboardPage() {
       .channel("lb-rt")
       .on("postgres_changes", { event: "*", schema: "public", table: "predictions" }, load)
       .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "bracket_predictions" }, load)
       .subscribe();
     return () => {
       supabase.removeChannel(ch);
@@ -83,6 +100,37 @@ function LeaderboardPage() {
     for (let i = list.length - 1; i >= 0 && list[i].points > 0; i--) s++;
     streakBy[uid] = s;
   }
+
+  // Движение мест со вчерашнего игрового дня.
+  const dayPreds: DayPred[] = [];
+  for (const [uid, list] of Object.entries(finishedBy)) {
+    for (const x of list)
+      dayPreds.push({
+        user_id: uid,
+        kickoff: x.kickoff,
+        points: x.points,
+        bingo: x.outcome === "bingo",
+      });
+  }
+  const movementBy = movementByUser(dayPreds);
+
+  // Ачивки игроков.
+  const achPreds: AchPrediction[] = preds
+    .filter((p) => p.matches)
+    .map((p) => ({
+      user_id: p.user_id,
+      home_score: p.home_score,
+      away_score: p.away_score,
+      outcome_type: p.outcome_type,
+      points: p.points,
+      kickoff: p.matches!.kickoff,
+      status: p.matches!.status,
+    }));
+  const achByUser = computeAchievements({
+    leaderboard: rows,
+    predictions: achPreds,
+    brackets: champions,
+  });
 
   // rank with ties
   const ranks: number[] = [];
@@ -192,6 +240,8 @@ function LeaderboardPage() {
                 const gap = topPoints - (r.total_points ?? 0);
                 const streak = streakBy[r.user_id ?? ""] ?? 0;
                 const form = formBy[r.user_id ?? ""] ?? [];
+                const move = movementBy[r.user_id ?? ""] ?? 0;
+                const badges = achByUser[r.user_id ?? ""] ?? [];
                 return (
                   <tr
                     key={r.user_id}
@@ -211,6 +261,24 @@ function LeaderboardPage() {
                         <span className={isLeader ? "text-gold" : isTop3 ? "text-primary" : ""}>
                           {rank}
                         </span>
+                        {move > 0 && (
+                          <span
+                            title={`Поднялся на ${move}`}
+                            className="inline-flex items-center text-[10px] font-bold text-pitch"
+                          >
+                            <ArrowUp className="size-3" />
+                            {move}
+                          </span>
+                        )}
+                        {move < 0 && (
+                          <span
+                            title={`Опустился на ${-move}`}
+                            className="inline-flex items-center text-[10px] font-bold text-destructive"
+                          >
+                            <ArrowDown className="size-3" />
+                            {-move}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-3 font-semibold">
@@ -223,6 +291,19 @@ function LeaderboardPage() {
                           <span className="inline-flex items-center gap-0.5 rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-bold text-orange-500">
                             <Flame className="size-3" />
                             {streak}
+                          </span>
+                        )}
+                        {badges.length > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            {badges.slice(0, 3).map((b) => (
+                              <span
+                                key={b.id}
+                                title={`${b.title}: ${b.desc}`}
+                                className="text-sm leading-none"
+                              >
+                                {b.emoji}
+                              </span>
+                            ))}
                           </span>
                         )}
                       </div>
@@ -300,9 +381,14 @@ function LeaderboardPage() {
         <span className="flex items-center gap-1">
           <span className="size-2.5 rounded-full bg-destructive" /> Промах
         </span>
-        <span className="ml-auto flex items-center gap-1">
-          <Flame className="size-3 text-orange-500" /> — серия результативных прогнозов
+        <span className="flex items-center gap-1">
+          <Flame className="size-3 text-orange-500" /> — серия результативных
         </span>
+        <span className="flex items-center gap-1">
+          <ArrowUp className="size-3 text-pitch" />
+          <ArrowDown className="size-3 text-destructive" /> — движение места со вчера
+        </span>
+        <span className="ml-auto">Эмодзи у имени — ачивки (наведи, чтобы прочитать)</span>
       </div>
     </div>
   );

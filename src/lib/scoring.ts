@@ -1,5 +1,10 @@
 export const CARS = ["TOYOTA", "AUDI", "VOLVO", "BMW", "ŠKODA"] as const;
 
+/** Очки за тип исхода (см. Правила: БИНГО +3, ничья +2, исход +1). */
+export const POINTS = { bingo: 3, draw: 2, outcome: 1, miss: 0 } as const;
+/** Максимум очков за один матч (точный счёт). */
+export const MAX_POINTS_PER_MATCH = POINTS.bingo;
+
 export const STAGE_LABELS: Record<string, string> = {
   group: "Группа",
   round_of_32: "1/16 финала",

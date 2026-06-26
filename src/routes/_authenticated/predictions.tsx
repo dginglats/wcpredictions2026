@@ -4,11 +4,17 @@ import confetti from "canvas-confetti";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
 import type { Match, Prediction, LeaderboardRow } from "@/lib/types";
-import { outcomeBadge, STAGE_LABELS, bettingOpensAt } from "@/lib/scoring";
+import {
+  outcomeBadge,
+  STAGE_LABELS,
+  bettingOpensAt,
+  formatRemaining,
+  MAX_POINTS_PER_MATCH,
+} from "@/lib/scoring";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Crown, Lock, Save, Users, Clock } from "lucide-react";
+import { Crown, Lock, Save, Users, Clock, Timer, AlertTriangle, Target } from "lucide-react";
 import { toast } from "sonner";
 import { TeamDisplay } from "@/components/TeamDisplay";
 
@@ -37,6 +43,15 @@ function PredictionsPage() {
   const [isLeader, setIsLeader] = useState(false);
   const [lateBetting, setLateBetting] = useState(false);
   const [participantCount, setParticipantCount] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [quick, setQuick] = useState<"all" | "today" | "todo">("all");
+  const [bucket, setBucket] = useState("all");
+
+  // Тикаем каждую секунду — для живого обратного отсчёта на карточках.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   async function reload() {
     if (!user) return;
@@ -179,7 +194,6 @@ function PredictionsPage() {
     reload();
   }
 
-  const now = Date.now();
   const future = matches.filter(
     (m) => new Date(m.kickoff).getTime() > now && m.status === "scheduled",
   );
@@ -198,6 +212,37 @@ function PredictionsPage() {
     })
     .sort((a, b) => new Date(b.kickoff).getTime() - new Date(a.kickoff).getTime());
 
+  // ── Напоминалки и потенциальные очки ──
+  const matchById: Record<string, Match> = {};
+  for (const m of matches) matchById[m.id] = m;
+  const openUnbet = future.filter((m) => canBet(m).allowed && !preds[m.id]);
+  const pendingMine = Object.keys(preds).filter(
+    (mid) => matchById[mid] && matchById[mid].status !== "finished",
+  ).length;
+  const potentialMax = pendingMine * MAX_POINTS_PER_MATCH;
+
+  // ── Фильтры вкладки «Будущие» ──
+  const bucketKey = (m: Match) =>
+    m.stage === "group" ? `group:${m.group_name}` : `stage:${m.stage}`;
+  const bucketLabel = (m: Match) =>
+    m.stage === "group" ? `Группа ${m.group_name}` : STAGE_LABELS[m.stage];
+  const bucketOptions = Array.from(new Map(future.map((m) => [bucketKey(m), bucketLabel(m)])));
+  const isToday = (iso: string) => {
+    const d = new Date(iso);
+    const n = new Date(now);
+    return (
+      d.getFullYear() === n.getFullYear() &&
+      d.getMonth() === n.getMonth() &&
+      d.getDate() === n.getDate()
+    );
+  };
+  const visibleFuture = future.filter((m) => {
+    if (bucket !== "all" && bucketKey(m) !== bucket) return false;
+    if (quick === "today" && !isToday(m.kickoff)) return false;
+    if (quick === "todo" && !(canBet(m).allowed && !preds[m.id])) return false;
+    return true;
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -213,6 +258,28 @@ function PredictionsPage() {
           )}
         </p>
       </div>
+
+      {(openUnbet.length > 0 || potentialMax > 0) && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-gold/40 bg-gold/5 p-4">
+          {openUnbet.length > 0 && (
+            <span className="flex items-center gap-1.5 text-sm font-medium text-gold">
+              <AlertTriangle className="size-4" />
+              Ты ещё не поставил на {openUnbet.length}{" "}
+              {plural(openUnbet.length, "открытый матч", "открытых матча", "открытых матчей")}!
+            </span>
+          )}
+          {potentialMax > 0 && (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Target className="size-4 text-primary" />
+              На кону ещё до <span className="font-semibold text-foreground">
+                {potentialMax}
+              </span>{" "}
+              {plural(potentialMax, "очка", "очков", "очков")} ({pendingMine}{" "}
+              {plural(pendingMine, "активный прогноз", "активных прогноза", "активных прогнозов")})
+            </span>
+          )}
+        </div>
+      )}
 
       {lateBetting && (
         <div className="rounded-xl border border-primary/40 bg-primary/10 p-4 flex items-start gap-3">
@@ -245,8 +312,56 @@ function PredictionsPage() {
             </TabsList>
 
             <TabsContent value="future" className="space-y-3 mt-4">
-              {future.length === 0 && <Empty text="Нет предстоящих матчей." />}
-              {future.map((m) => {
+              {future.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      ["all", "Все"],
+                      ["today", "Сегодня"],
+                      ["todo", "Без прогноза"],
+                    ] as const
+                  ).map(([v, l]) => (
+                    <button
+                      key={v}
+                      onClick={() => setQuick(v)}
+                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        quick === v
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary hover:bg-accent"
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                  {bucketOptions.length > 1 && (
+                    <select
+                      value={bucket}
+                      onChange={(e) => setBucket(e.target.value)}
+                      className="h-7 rounded-full border border-input bg-background px-2 text-xs"
+                    >
+                      <option value="all">Все этапы</option>
+                      {bucketOptions.map(([k, l]) => (
+                        <option key={k} value={k}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+                    {visibleFuture.length} из {future.length}
+                  </span>
+                </div>
+              )}
+              {visibleFuture.length === 0 && (
+                <Empty
+                  text={
+                    future.length === 0
+                      ? "Нет предстоящих матчей."
+                      : "Ничего не найдено по фильтру."
+                  }
+                />
+              )}
+              {visibleFuture.map((m) => {
                 const d = draft[m.id] ?? { h: "", a: "" };
                 const saved = !!preds[m.id];
                 const { allowed, reason } = canBet(m);
@@ -255,7 +370,9 @@ function PredictionsPage() {
                 return (
                   <div
                     key={m.id}
-                    className="rounded-xl border border-border bg-card p-4 shadow-card"
+                    className={`rounded-xl border bg-card p-4 shadow-card ${
+                      editable ? "border-gold/50 ring-1 ring-inset ring-gold/25" : "border-border"
+                    }`}
                   >
                     <div className="text-xs text-muted-foreground mb-2 flex justify-between">
                       <span>
@@ -316,7 +433,10 @@ function PredictionsPage() {
                           {reason}
                         </span>
                       ) : (
-                        <span />
+                        <span className="text-xs flex items-center gap-1 text-primary font-medium">
+                          <Timer className="size-3" />
+                          до закрытия: {formatRemaining(new Date(m.kickoff).getTime() - now)}
+                        </span>
                       )}
                       {!saved && (
                         <Button
@@ -585,6 +705,16 @@ function PredictionsPage() {
       <ConfettiOnBingo preds={preds} />
     </div>
   );
+}
+
+/** Русское склонение: 1 матч, 2 матча, 5 матчей. */
+function plural(n: number, one: string, few: string, many: string): string {
+  const nn = Math.abs(n) % 100;
+  const n1 = nn % 10;
+  if (nn > 10 && nn < 20) return many;
+  if (n1 > 1 && n1 < 5) return few;
+  if (n1 === 1) return one;
+  return many;
 }
 
 function Empty({ text }: { text: string }) {
