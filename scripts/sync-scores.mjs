@@ -230,8 +230,23 @@ function mapFixture(m) {
   const away = team(m.awayTeam);
   const { stage, group_name } = mapStage(m.stage, m.group);
   const status = mapStatus(m.status);
-  const ft = m.score?.fullTime ?? {};
+  const score = m.score ?? {};
+  const ft = score.fullTime ?? {};
+  const reg = score.regularTime ?? {};
+  const et = score.extraTime ?? {};
+  const pen = score.penalties ?? {};
   const scored = status !== "scheduled";
+  const duration = scored ? (score.duration ?? null) : null;
+
+  // Плей-офф, ушедший в доп. время / пенальти: football-data отдаёт в fullTime
+  // ИТОГОВЫЙ счёт (с голами доп. времени и серии пенальти). Основной счёт —
+  // тот, по которому считаются очки и который показывается — берём за 90 минут
+  // (regularTime). Группа и матчи, решённые в основное время, → fullTime.
+  const overtime =
+    (duration === "EXTRA_TIME" || duration === "PENALTY_SHOOTOUT") && reg.home != null;
+  const main = overtime ? reg : ft;
+  const num = (v) => (v == null ? null : v);
+
   return {
     external_id: String(m.id),
     home_team: home.name,
@@ -242,8 +257,13 @@ function mapFixture(m) {
     stage,
     group_name,
     status,
-    home_score: scored && ft.home != null ? ft.home : null,
-    away_score: scored && ft.away != null ? ft.away : null,
+    home_score: scored ? num(main.home) : null,
+    away_score: scored ? num(main.away) : null,
+    score_duration: duration,
+    home_et: scored ? num(et.home) : null,
+    away_et: scored ? num(et.away) : null,
+    home_pen: scored ? num(pen.home) : null,
+    away_pen: scored ? num(pen.away) : null,
   };
 }
 
@@ -260,7 +280,7 @@ async function fetchFixtures() {
 
 async function getDbMatches() {
   const base =
-    "id,home_team,away_team,kickoff,stadium,city,stage,group_name,status,home_score,away_score";
+    "id,home_team,away_team,kickoff,stadium,city,stage,group_name,status,home_score,away_score,score_duration,home_et,away_et,home_pen,away_pen";
   let res = await fetch(`${BASE}/rest/v1/matches?select=external_id,${base}`, { headers: SB_READ });
   if (!res.ok) {
     const text = await res.text();
@@ -355,7 +375,16 @@ async function main() {
   const unlinked = db.filter((m) => !m.external_id);
 
   // In live mode only touch score/status to avoid clobbering schedule and firing extra recalcs.
-  const LIVE_FIELDS = ["status", "home_score", "away_score"];
+  const LIVE_FIELDS = [
+    "status",
+    "home_score",
+    "away_score",
+    "score_duration",
+    "home_et",
+    "away_et",
+    "home_pen",
+    "away_pen",
+  ];
   // No stadium/city: football-data.org free tier omits venue, so we never overwrite
   // any manually-seeded stadium/city with null.
   const ALL_FIELDS = [
@@ -370,6 +399,11 @@ async function main() {
     "status",
     "home_score",
     "away_score",
+    "score_duration",
+    "home_et",
+    "away_et",
+    "home_pen",
+    "away_pen",
   ];
 
   let inserted = 0,

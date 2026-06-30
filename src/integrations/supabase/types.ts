@@ -50,6 +50,8 @@ export type Database = {
       matches: {
         Row: {
           away_flag: string | null;
+          away_et: number | null;
+          away_pen: number | null;
           away_score: number | null;
           away_team: string;
           city: string | null;
@@ -57,10 +59,13 @@ export type Database = {
           external_id: string | null;
           group_name: string | null;
           home_flag: string | null;
+          home_et: number | null;
+          home_pen: number | null;
           home_score: number | null;
           home_team: string;
           id: string;
           kickoff: string;
+          score_duration: string | null;
           stadium: string | null;
           stage: Database["public"]["Enums"]["match_stage"];
           status: Database["public"]["Enums"]["match_status"];
@@ -68,6 +73,8 @@ export type Database = {
         };
         Insert: {
           away_flag?: string | null;
+          away_et?: number | null;
+          away_pen?: number | null;
           away_score?: number | null;
           away_team: string;
           city?: string | null;
@@ -75,10 +82,13 @@ export type Database = {
           external_id?: string | null;
           group_name?: string | null;
           home_flag?: string | null;
+          home_et?: number | null;
+          home_pen?: number | null;
           home_score?: number | null;
           home_team: string;
           id?: string;
           kickoff: string;
+          score_duration?: string | null;
           stadium?: string | null;
           stage?: Database["public"]["Enums"]["match_stage"];
           status?: Database["public"]["Enums"]["match_status"];
@@ -86,6 +96,8 @@ export type Database = {
         };
         Update: {
           away_flag?: string | null;
+          away_et?: number | null;
+          away_pen?: number | null;
           away_score?: number | null;
           away_team?: string;
           city?: string | null;
@@ -93,10 +105,13 @@ export type Database = {
           external_id?: string | null;
           group_name?: string | null;
           home_flag?: string | null;
+          home_et?: number | null;
+          home_pen?: number | null;
           home_score?: number | null;
           home_team?: string;
           id?: string;
           kickoff?: string;
+          score_duration?: string | null;
           stadium?: string | null;
           stage?: Database["public"]["Enums"]["match_stage"];
           status?: Database["public"]["Enums"]["match_status"];

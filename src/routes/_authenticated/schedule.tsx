@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Countdown } from "@/components/Countdown";
 import { TeamDisplay } from "@/components/TeamDisplay";
+import { FinishedScore } from "@/components/FinishedScore";
 
 export const Route = createFileRoute("/_authenticated/schedule")({ component: SchedulePage });
 
@@ -483,9 +484,11 @@ function MatchCard({
           <TeamDisplay flag={m.home_flag} name={m.home_team} />
           <div className="self-center px-1">
             {isFinished ? (
-              <div className="text-2xl sm:text-3xl md:text-4xl font-bold tabular-nums text-gradient-gold whitespace-nowrap">
-                {m.home_score}:{m.away_score}
-              </div>
+              <FinishedScore
+                m={m}
+                className="text-2xl sm:text-3xl md:text-4xl font-bold"
+                scoreClassName="text-gradient-gold"
+              />
             ) : (
               <div className="text-xl sm:text-2xl font-bold text-muted-foreground">vs</div>
             )}

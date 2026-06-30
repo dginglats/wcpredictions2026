@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import { toast } from "sonner"
-import { Plus, Trash2, Save, Clock } from "lucide-react"
+import { Plus, Trash2, Save, Clock, ChevronDown } from "lucide-react"
 
 const LATE_BETTING_KEY = "late_betting_enabled"
 
@@ -61,8 +61,20 @@ function MatchesAdmin() {
     load()
   }
 
-  async function setResult(m: Match, h: number, a: number, status: MatchStatus) {
-    const { error } = await supabase.from("matches").update({ home_score: h, away_score: a, status }).eq("id", m.id)
+  async function setResult(m: Match, h: number, a: number, status: MatchStatus, ot: OvertimePatch) {
+    const { error } = await supabase
+      .from("matches")
+      .update({
+        home_score: h,
+        away_score: a,
+        status,
+        score_duration: ot.score_duration,
+        home_et: ot.home_et,
+        away_et: ot.away_et,
+        home_pen: ot.home_pen,
+        away_pen: ot.away_pen,
+      })
+      .eq("id", m.id)
     if (error) return toast.error(error.message)
     toast.success("Результат сохранён, очки пересчитаны")
     load()
@@ -105,26 +117,99 @@ function MatchesAdmin() {
   )
 }
 
-function MatchAdminRow({ m, onResult, onDelete }: { m: Match; onResult: (m:Match,h:number,a:number,s:MatchStatus)=>void; onDelete:(id:string)=>void }) {
+/** Доп. поля результата плей-офф (доп. время / серия пенальти). */
+interface OvertimePatch {
+  score_duration: string | null
+  home_et: number | null
+  away_et: number | null
+  home_pen: number | null
+  away_pen: number | null
+}
+
+/** "" → null, иначе число. */
+const numOrNull = (s: string): number | null => (s.trim() === "" ? null : Number(s))
+
+function MatchAdminRow({ m, onResult, onDelete }: { m: Match; onResult: (m:Match,h:number,a:number,s:MatchStatus,ot:OvertimePatch)=>void; onDelete:(id:string)=>void }) {
   const [h, setH] = useState(String(m.home_score ?? ""))
   const [a, setA] = useState(String(m.away_score ?? ""))
   const [status, setStatus] = useState<MatchStatus>(m.status)
+  // Плей-офф: доп. время / пенальти. Группы это не касается.
+  const isKnockout = m.stage !== "group"
+  const [dur, setDur] = useState<string>(m.score_duration ?? "REGULAR")
+  const [eth, setEth] = useState(String(m.home_et ?? ""))
+  const [eta, setEta] = useState(String(m.away_et ?? ""))
+  const [ph, setPh] = useState(String(m.home_pen ?? ""))
+  const [pa, setPa] = useState(String(m.away_pen ?? ""))
+  const [open, setOpen] = useState(false)
+
+  function save() {
+    let ot: OvertimePatch
+    if (isKnockout && dur === "PENALTY_SHOOTOUT") {
+      ot = { score_duration: "PENALTY_SHOOTOUT", home_et: numOrNull(eth), away_et: numOrNull(eta), home_pen: numOrNull(ph), away_pen: numOrNull(pa) }
+    } else if (isKnockout && dur === "EXTRA_TIME") {
+      ot = { score_duration: "EXTRA_TIME", home_et: numOrNull(eth), away_et: numOrNull(eta), home_pen: null, away_pen: null }
+    } else {
+      ot = { score_duration: null, home_et: null, away_et: null, home_pen: null, away_pen: null }
+    }
+    onResult(m, Number(h || 0), Number(a || 0), status, ot)
+  }
+
   return (
-    <div className="rounded-lg border border-border bg-card p-3 flex flex-wrap items-center gap-3">
-      <div className="flex-1 min-w-[200px]">
-        <div className="text-xs text-muted-foreground">{new Date(m.kickoff).toLocaleString("ru-RU")} · {STAGE_LABELS[m.stage]}{m.group_name?` · гр.${m.group_name}`:""}</div>
-        <div className="font-semibold">{m.home_team} — {m.away_team}</div>
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <div className="text-xs text-muted-foreground">{new Date(m.kickoff).toLocaleString("ru-RU")} · {STAGE_LABELS[m.stage]}{m.group_name?` · гр.${m.group_name}`:""}</div>
+          <div className="font-semibold">{m.home_team} — {m.away_team}</div>
+        </div>
+        <Input className="w-14 text-center" value={h} onChange={e=>setH(e.target.value.replace(/\D/g,""))} placeholder="—" />
+        <span>:</span>
+        <Input className="w-14 text-center" value={a} onChange={e=>setA(e.target.value.replace(/\D/g,""))} placeholder="—" />
+        <select value={status} onChange={e=>setStatus(e.target.value as MatchStatus)} className="h-10 rounded-md border border-input bg-background px-2 text-sm">
+          <option value="scheduled">Запланирован</option>
+          <option value="live">Идёт</option>
+          <option value="finished">Завершён</option>
+        </select>
+        {isKnockout && (
+          <Button size="sm" variant="outline" onClick={()=>setOpen(o=>!o)} title="Доп. время / пенальти">
+            <ChevronDown className={`size-3.5 transition-transform ${open?"rotate-180":""}`} />
+          </Button>
+        )}
+        <Button size="sm" onClick={save}><Save className="size-3.5" /></Button>
+        <Button size="sm" variant="destructive" onClick={()=>onDelete(m.id)}><Trash2 className="size-3.5" /></Button>
       </div>
-      <Input className="w-14 text-center" value={h} onChange={e=>setH(e.target.value.replace(/\D/g,""))} placeholder="—" />
-      <span>:</span>
-      <Input className="w-14 text-center" value={a} onChange={e=>setA(e.target.value.replace(/\D/g,""))} placeholder="—" />
-      <select value={status} onChange={e=>setStatus(e.target.value as MatchStatus)} className="h-10 rounded-md border border-input bg-background px-2 text-sm">
-        <option value="scheduled">Запланирован</option>
-        <option value="live">Идёт</option>
-        <option value="finished">Завершён</option>
-      </select>
-      <Button size="sm" onClick={()=>onResult(m, Number(h||0), Number(a||0), status)}><Save className="size-3.5" /></Button>
-      <Button size="sm" variant="destructive" onClick={()=>onDelete(m.id)}><Trash2 className="size-3.5" /></Button>
+
+      {isKnockout && open && (
+        <div className="mt-3 pt-3 border-t border-border/60 space-y-2">
+          <div className="text-[11px] text-muted-foreground">
+            Основной счёт выше — это <b>основное время</b> (по нему считаются очки). Ниже — чем
+            закончился матч плей-офф (для отображения и для определения победителя в сетке).
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Label className="text-xs">Исход:</Label>
+            <select value={dur} onChange={e=>setDur(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+              <option value="REGULAR">Основное время</option>
+              <option value="EXTRA_TIME">Доп. время</option>
+              <option value="PENALTY_SHOOTOUT">Пенальти</option>
+            </select>
+            {(dur === "EXTRA_TIME" || dur === "PENALTY_SHOOTOUT") && (
+              <span className="flex items-center gap-1.5">
+                <Label className="text-xs">Голы в доп. время:</Label>
+                <Input className="w-12 text-center" value={eth} onChange={e=>setEth(e.target.value.replace(/\D/g,""))} placeholder="0" />
+                <span>:</span>
+                <Input className="w-12 text-center" value={eta} onChange={e=>setEta(e.target.value.replace(/\D/g,""))} placeholder="0" />
+              </span>
+            )}
+            {dur === "PENALTY_SHOOTOUT" && (
+              <span className="flex items-center gap-1.5">
+                <Label className="text-xs">Пенальти:</Label>
+                <Input className="w-12 text-center" value={ph} onChange={e=>setPh(e.target.value.replace(/\D/g,""))} placeholder="—" />
+                <span>:</span>
+                <Input className="w-12 text-center" value={pa} onChange={e=>setPa(e.target.value.replace(/\D/g,""))} placeholder="—" />
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -32,6 +32,7 @@ import {
   computeActualGroups,
   actualBestThirds,
   actualKnockout,
+  knockoutWinner,
   r32Matchups,
   r16Matchups,
   qfMatchups,
@@ -42,6 +43,7 @@ import {
   type ActualMatch,
   type Standing,
 } from "@/lib/bracket";
+import { FinishedScore } from "@/components/FinishedScore";
 
 export const Route = createFileRoute("/_authenticated/bracket")({ component: BracketPage });
 
@@ -115,11 +117,10 @@ function BracketPage() {
   async function reload() {
     if (!user) return;
     const [{ data: ms }, { data: brackets }, { data: profs }] = await Promise.all([
-      supabase
-        .from("matches")
-        .select(
-          "home_team, away_team, home_flag, away_flag, group_name, stage, status, home_score, away_score",
-        ),
+      // select("*") — чтобы страница не падала, если миграция с новыми колонками
+      // (score_duration / *_et / *_pen) ещё не применена: их просто не будет в
+      // ответе, knockoutWinner/FinishedScore корректно обработают undefined.
+      supabase.from("matches").select("*"),
       supabase.from("bracket_predictions").select("user_id, data"),
       supabase.from("profiles").select("id, username"),
     ]);
@@ -997,7 +998,9 @@ function RealityView({
               <div className="mb-1.5 text-xs font-semibold text-gold">{STAGE_LABELS[stage]}</div>
               <div className="grid gap-1.5 sm:grid-cols-2">
                 {games.map((m, i) => {
-                  const homeWin = (m.home_score ?? 0) > (m.away_score ?? 0);
+                  const winner = knockoutWinner(m);
+                  const homeWin = winner === m.home_team;
+                  const awayWin = winner === m.away_team;
                   return (
                     <div
                       key={i}
@@ -1006,10 +1009,12 @@ function RealityView({
                       <span className={homeWin ? "font-semibold" : "text-muted-foreground"}>
                         {chip(m.home_team)}
                       </span>
-                      <span className="tabular-nums text-xs text-muted-foreground">
-                        {m.home_score}:{m.away_score}
-                      </span>
-                      <span className={!homeWin ? "font-semibold" : "text-muted-foreground"}>
+                      <FinishedScore
+                        m={m}
+                        className="text-xs text-muted-foreground"
+                        noteClassName="text-[9px]"
+                      />
+                      <span className={awayWin ? "font-semibold" : "text-muted-foreground"}>
                         {chip(m.away_team)}
                       </span>
                     </div>

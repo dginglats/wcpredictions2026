@@ -234,6 +234,32 @@ export interface ActualMatch {
   status: string;
   stage: string;
   group_name: string | null;
+  /** Детали плей-офф для определения победителя серии пенальти / доп. времени. */
+  score_duration?: string | null;
+  home_et?: number | null;
+  away_et?: number | null;
+  home_pen?: number | null;
+  away_pen?: number | null;
+}
+
+/**
+ * Победитель матча плей-офф с учётом доп. времени и серии пенальти.
+ * home_score/away_score — основное время (90 мин), поэтому ничью в основное
+ * время разрешаем по голам доп. времени, а затем по серии пенальти.
+ * Возвращает имя команды или null, если победитель ещё не определён.
+ */
+export function knockoutWinner(m: ActualMatch): string | null {
+  if (m.status !== "finished" || m.home_score == null || m.away_score == null) return null;
+  // Серия пенальти решает исход.
+  if (m.score_duration === "PENALTY_SHOOTOUT" && m.home_pen != null && m.away_pen != null) {
+    if (m.home_pen === m.away_pen) return null;
+    return m.home_pen > m.away_pen ? m.home_team : m.away_team;
+  }
+  // Иначе считаем по голам с учётом доп. времени (основное + доп. время).
+  const h = m.home_score + (m.home_et ?? 0);
+  const a = m.away_score + (m.away_et ?? 0);
+  if (h === a) return null; // победитель не определён по счёту
+  return h > a ? m.home_team : m.away_team;
 }
 
 export interface Standing {
@@ -344,9 +370,8 @@ export function actualKnockout(matches: ActualMatch[]): {
   let champion = "";
   let third = "";
   for (const m of matches) {
-    if (m.status !== "finished" || m.home_score == null || m.away_score == null) continue;
-    if (m.home_score === m.away_score) continue; // победитель не определён по основному счёту
-    const w = m.home_score > m.away_score ? m.home_team : m.away_team;
+    const w = knockoutWinner(m);
+    if (!w) continue; // победитель ещё не определён (ничья без серии пенальти / не сыгран)
     const key = STAGE_KEY[m.stage];
     if (key) advanced[key].add(w);
     if (m.stage === "final") champion = w;

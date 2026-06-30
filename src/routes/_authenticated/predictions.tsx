@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Crown, Lock, Save, Users, Clock, Timer, AlertTriangle, Target } from "lucide-react";
 import { toast } from "sonner";
 import { TeamDisplay } from "@/components/TeamDisplay";
+import { FinishedScore } from "@/components/FinishedScore";
 
 export const Route = createFileRoute("/_authenticated/predictions")({ component: PredictionsPage });
 
@@ -506,8 +507,12 @@ function PredictionsPage() {
                     <div className="grid grid-cols-[1fr_auto_1fr] items-start gap-2 sm:gap-3">
                       <TeamDisplay flag={m.home_flag} name={m.home_team} size="sm" />
                       <div className="text-center self-center">
-                        <div className="text-xl font-bold tabular-nums whitespace-nowrap">
-                          {m.status === "finished" ? `${m.home_score}:${m.away_score}` : "—:—"}
+                        <div className="text-xl font-bold">
+                          {m.status === "finished" ? (
+                            <FinishedScore m={m} />
+                          ) : (
+                            <span className="tabular-nums whitespace-nowrap">—:—</span>
+                          )}
                         </div>
                         {p && (
                           <div className="text-[10px] text-muted-foreground mt-0.5">
@@ -640,9 +645,7 @@ function PredictionsPage() {
                   <TeamDisplay flag={m.home_flag} name={m.home_team} size="sm" />
                   <div className="text-center shrink-0 self-center">
                     {isFinished ? (
-                      <span className="text-xl font-bold tabular-nums whitespace-nowrap">
-                        {m.home_score}:{m.away_score}
-                      </span>
+                      <FinishedScore m={m} className="text-xl font-bold" />
                     ) : (
                       <span className="text-muted-foreground font-bold text-sm">vs</span>
                     )}
